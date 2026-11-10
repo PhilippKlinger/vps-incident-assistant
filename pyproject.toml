@@ -8,3 +8,5 @@ select = ["E", "F", "I", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Starlette's TestClient warns about httpx on import (third-party, not ours).
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]

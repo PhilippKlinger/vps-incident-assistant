@@ -182,7 +182,8 @@ def test_pipeline_github_down_skips_llm():
     s = Setup(github_down=True)
     handle_event(_event(), s.deps)
     assert s.ollama_calls == 0
-    assert len(s.store.calls("POST", "/issues")) == 1
+    body = s.store.calls("POST", "/issues")[0]["body"]
+    assert "### Regel-Ergebnis" in body
     assert len(s.telegram) == 1
 
 
@@ -190,6 +191,9 @@ def test_pipeline_rate_limit_skips_llm():
     s = Setup(limit=0)
     handle_event(_event(), s.deps)
     assert s.ollama_calls == 0
+    comments = s.store.calls("POST", "/comments")
+    assert len(comments) == 1
+    assert "Stundenlimit erreicht" in comments[0]["body"]
     assert len(s.telegram) == 1
 
 
@@ -247,6 +251,8 @@ def test_pipeline_resolve_no_telegram():
     handle_event(_event("Videoflix · API", "up"), s.deps)
     assert "Erholt nach 5 min" in s.store.calls("POST", "/comments")[0]["body"]
     assert s.store.calls("POST", "/labels") == [{"labels": ["resolved-pending-review"]}]
+    deletes = [p for m, p, _ in s.store.requests if m == "DELETE"]
+    assert deletes == ["/issues/7/labels/monitor:videoflix-api"]
     assert s.telegram == []
 
 
@@ -304,3 +310,33 @@ def test_concurrent_downs_create_one_issue():
     for t in threads:
         t.join()
     assert len(s.store.calls("POST", "/issues")) == 1
+
+
+def test_comment_failure_still_sends_one_telegram(caplog):
+    s = Setup()
+    original = s.store.handler
+
+    def handler(request):
+        if request.method == "POST" and request.url.path.endswith("/comments"):
+            return httpx.Response(500)
+        return original(request)
+
+    s.deps.issues = IssueClient(
+        httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler)),
+        REPO,
+    )
+    handle_event(_event(), s.deps)
+    assert len(s.store.calls("POST", "/issues")) == 1
+    assert len(s.telegram) == 1
+
+
+def test_analyze_error_still_sends_one_telegram(monkeypatch, caplog):
+    s = Setup()
+
+    def broken(ctx, ollama):
+        raise KeyError("bug")
+
+    monkeypatch.setattr("assistant.pipeline.analyze", broken)
+    handle_event(_event(), s.deps)
+    assert len(s.telegram) == 1
+    assert "KeyError" in caplog.text

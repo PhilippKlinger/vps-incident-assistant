@@ -37,6 +37,8 @@ from assistant.telegram import TelegramError
 
 log = logging.getLogger(__name__)
 
+LIMIT_REASON = "Stundenlimit erreicht"
+
 # Kuma sends the Web-App and API alarms almost at once; without this lock both would
 # find no open issue and create one each.
 _ISSUE_LOCK = threading.Lock()
@@ -62,18 +64,17 @@ def _build_context(event: KumaEvent, project, deps: Deps, now: datetime) -> Inci
     return build_context(event, project, probe, rule, reader, now)
 
 
-def _create(ctx: IncidentContext, label: str, deps: Deps) -> tuple[int, bool]:
-    """Create the issue; returns its number and whether an LLM run follows."""
+def _create(ctx: IncidentContext, label: str, deps: Deps) -> "_FollowUp":
     project = ctx.project
-    cfg = deps.config
-    # Order matters: the limiter is only consumed when a run will actually happen.
-    run_llm = cfg.llm_enabled and project.llm and ctx.github_ok and deps.limiter.allow()
+    llm_wanted = deps.config.llm_enabled and project.llm and ctx.github_ok
     issue = deps.issues.create(
         issue_title(ctx),
-        issue_body(ctx, analysis_pending=run_llm),
+        issue_body(ctx, analysis_pending=llm_wanted),
         [INCIDENT, project_label(project.name), label],
     )
-    return issue.number, run_llm
+    # The limiter slot is only taken once the issue exists and a run will follow.
+    run_llm = llm_wanted and deps.limiter.allow()
+    return _FollowUp(ctx, issue.number, run_llm, limited=llm_wanted and not run_llm)
 
 
 @dataclass(frozen=True)
@@ -81,6 +82,8 @@ class _FollowUp:
     ctx: IncidentContext
     number: int
     run_llm: bool
+    # The issue promised an analysis but the hourly limit refused it.
+    limited: bool = False
 
 
 def _apply(
@@ -107,8 +110,7 @@ def _apply(
         issues.add_labels(number, [label])
     elif action is Action.CREATE:
         ctx = _build_context(event, project, deps, now)
-        number, run_llm = _create(ctx, label, deps)
-        return _FollowUp(ctx, number, run_llm)
+        return _create(ctx, label, deps)
     return None
 
 
@@ -124,23 +126,39 @@ def _notify(deps: Deps, text: str) -> None:
         log.warning("telegram failed: %s", error)
 
 
-def _follow_up(job: _FollowUp, deps: Deps) -> None:
-    """LLM analysis, its comment and Telegram; runs after the lock is released."""
-    ctx, number = job.ctx, job.number
+def _comment_analysis(job: _FollowUp, deps: Deps) -> Analysis | None:
+    """Run the LLM and post its comment; failures are logged and never block Telegram."""
     started = time.monotonic()
-    url = f"https://github.com/{deps.settings.issue_repo}/issues/{number}"
     analysis: Analysis | None = None
     reason = ""
-    if job.run_llm:
-        result = analyze(ctx, deps.ollama)
-        if isinstance(result, Unavailable):
-            reason = f" unavailable={result.reason}"
-            deps.issues.comment(number, unavailable_comment(result.reason))
-        else:
-            analysis = result
-            deps.issues.comment(number, analysis_comment(result, ctx))
-        _log_step(Action.CREATE, number, started, f" llm=done{reason}")
-    _notify(deps, telegram_text(ctx, url, analysis))
+    try:
+        if job.limited:
+            reason = LIMIT_REASON
+            deps.issues.comment(job.number, unavailable_comment(reason))
+        elif job.run_llm:
+            result = analyze(job.ctx, deps.ollama)
+            if isinstance(result, Unavailable):
+                reason = result.reason
+                deps.issues.comment(job.number, unavailable_comment(reason))
+            else:
+                # Kept even if the comment fails below: Telegram can still carry it.
+                analysis = result
+                deps.issues.comment(job.number, analysis_comment(result, job.ctx))
+    except IssueUnavailable as error:
+        log.error("%s during analysis comment", type(error).__name__)
+    except Exception as error:
+        log.exception("analysis step failed: %s", type(error).__name__)
+    if job.run_llm or job.limited:
+        suffix = f" unavailable={reason}" if reason else ""
+        _log_step(Action.CREATE, job.number, started, f" llm=done{suffix}")
+    return analysis
+
+
+def _follow_up(job: _FollowUp, deps: Deps) -> None:
+    """LLM analysis, its comment and Telegram; runs after the lock is released."""
+    url = f"https://github.com/{deps.settings.issue_repo}/issues/{job.number}"
+    analysis = _comment_analysis(job, deps)
+    _notify(deps, telegram_text(job.ctx, url, analysis))
 
 
 def handle_event(event: KumaEvent, deps: Deps) -> None:
@@ -154,9 +172,7 @@ def handle_event(event: KumaEvent, deps: Deps) -> None:
             issue = deps.issues.find_open(project.name)
             window = timedelta(minutes=config.merge_window_minutes)
             action = decide(event, issue, monitor_label(event.monitor_name), now, window)
-            follow_up = (
-                _apply(action, event, issue, deps, now) if action is not Action.IGNORE else None
-            )
+            follow_up = _apply(action, event, issue, deps, now)
         number = follow_up.number if follow_up else (issue.number if issue else None)
         _log_step(action, number, started)
         if follow_up:
@@ -169,5 +185,6 @@ def run_event(event: KumaEvent, deps: Deps) -> None:
     try:
         handle_event(event, deps)
     except Exception as error:
-        # Only the exception type goes into the message: no tokens, no prompt content.
+        # The message has only the type; the traceback still shows str(error), so error
+        # messages in this code base must never carry tokens or prompt content.
         log.exception("unexpected error while handling event: %s", type(error).__name__)
