@@ -74,11 +74,15 @@ services:
     command:
       - >-
         ollama serve & pid=$$!;
-        until ollama list > /dev/null 2>&1; do sleep 1; done;
+        until ollama list > /dev/null 2>&1; do kill -0 $$pid || exit 1; sleep 1; done;
         ollama pull "${OLLAMA_MODEL:-qwen3:8b}"; status=$$?;
         kill $$pid; exit $$status
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+    # Same limits as ollama: the setup run shares the VPS as well
+    cpus: 2
+    mem_limit: 8g
+    cpu_shares: 256
     logging: *logging
     # The download needs the internet, so this service is not in "llm"
     networks: [outbound]

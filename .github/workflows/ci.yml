@@ -193,6 +193,20 @@ jobs:
           echo "::error::Assistant is not healthy after 150 seconds (status: ${status})"
           exit 1
 
+      # restart: unless-stopped would hide a crash loop behind a listed container.
+      # The request proves that Ollama runs without root and answers the assistant over "llm".
+      - name: Ollama runs and answers the assistant
+        run: |
+          set -Eeuo pipefail
+          sleep 10
+          id="$(docker compose ps -aq ollama)"
+          test -n "${id}"
+          state="$(docker inspect --format '{{.State.Running}} {{.RestartCount}}' "${id}")"
+          echo "Running, restarts: ${state}"
+          test "${state}" = "true 0"
+          docker compose exec -T assistant python -c \
+            "import urllib.request; print(urllib.request.urlopen('http://ollama:11434/api/version', timeout=5).read().decode())"
+
       # Same path as Kuma: from a container in the network "incident" to the alias.
       - name: Webhook without secret is rejected
         run: |
@@ -247,6 +261,7 @@ jobs:
           set -Eeuo pipefail
           image="$(sed -n 's/^ *image: *\(ollama\/ollama:.*\)$/\1/p' compose.yaml | sort -u)"
           echo "Image: ${image}"
+          test -n "${image}"
           test "$(wc -l <<< "${image}")" = "1"
           docker run --rm -v "${PWD}/.trivyignore.yaml:/trivyignore.yaml:ro" "${TRIVY_IMAGE}" \
             image --no-progress --severity HIGH,CRITICAL --ignore-unfixed \
@@ -303,6 +318,15 @@ jobs:
             --tag "${IMAGE}" \
             --load \
             .
+
+      # Scan exactly what gets pushed: cached layers (apt-get upgrade, wheels) can be older
+      # than the fresh build of the scan job. Same flags, no exceptions for the own image.
+      - name: Scan image with Trivy
+        env:
+          IMAGE: ${{ steps.name.outputs.ref }}
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "${TRIVY_IMAGE}" \
+            image --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "${IMAGE}"
 
       - name: Log in to GHCR
         if: github.event_name == 'push'

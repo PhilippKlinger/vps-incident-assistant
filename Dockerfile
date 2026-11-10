@@ -35,7 +35,7 @@ RUN --mount=type=bind,from=build,source=/wheels,target=/wheels \
     pip install --no-cache-dir --no-index /wheels/*.whl && \
     pip uninstall --yes pip
 
-# Owned by root and only readable for the app user: the service cannot change its own code.
+# Owned by root and world-readable: the app user can read its code but not change it.
 # config.toml is read from the parent of the package directory (/app/config.toml).
 WORKDIR /app
 COPY config.toml ./

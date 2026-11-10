@@ -2,13 +2,19 @@
 # 0.40.12 is the newest release older than 14 days; newer releases are too fresh for the cooldown.
 # Each entry expires: after that date the CI fails again and the finding has to be reviewed anew.
 # Remove an entry as soon as an image update ships the fix (Dependabot pull request).
+# purls limit each exception to the named packages; the same CVE elsewhere still fails the CI.
 vulnerabilities:
   - id: CVE-2026-109518
+    purls:
+      - pkg:deb/ubuntu/apt
+      - pkg:deb/ubuntu/libapt-pkg6.0t64
     statement: >-
       apt and libapt-pkg6.0t64 (Ubuntu base). The package manager is never executed at runtime; the
       container runs as non-root without capabilities on an internal network.
     expired_at: 2026-12-10
   - id: CVE-2026-78661
+    purls:
+      - pkg:golang/golang.org/x/net
     statement: >-
       golang.org/x/net v0.61.0 in usr/bin/ollama, denial of service in x/net/html. Ollama only serves the
       internal network "llm", reached by the assistant alone, and parses no untrusted HTML.
