@@ -1,0 +1,122 @@
+from dataclasses import dataclass
+from datetime import UTC, datetime
+
+import httpx
+
+_MARKER = "\n… gekürzt"
+
+
+class GitHubUnavailable(Exception):
+    """GitHub could not be read (network, 5xx, rate limit, auth)."""
+
+
+@dataclass(frozen=True)
+class RawChange:
+    repo: str
+    sha: str
+    title: str
+    author: str
+    merged_at: datetime
+    files: tuple[str, ...]
+    patch: str
+    body: str
+
+
+def make_client(token: str) -> httpx.Client:
+    return httpx.Client(
+        base_url="https://api.github.com",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Accept": "application/vnd.github+json",
+        },
+        timeout=10,
+    )
+
+
+def truncate_patch(patch: str, max_chars: int = 2000) -> str:
+    if len(patch) <= max_chars:
+        return patch
+    cut = patch[: max_chars - len(_MARKER)]
+    newline = cut.rfind("\n")
+    if newline > 0:
+        cut = cut[:newline]
+    return cut + _MARKER
+
+
+def _parse_time(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
+
+
+class GitHubReader:
+    def __init__(self, client: httpx.Client):
+        self._client = client
+
+    def _get(self, path: str, *, ok_404: bool = False, **kwargs) -> httpx.Response | None:
+        # Error messages carry only the status or exception type, never headers (token).
+        try:
+            response = self._client.get(path, **kwargs)
+        except httpx.TransportError as exc:
+            raise GitHubUnavailable(f"GitHub not reachable: {type(exc).__name__}") from None
+        status = response.status_code
+        if status == 404 and ok_404:
+            return None
+        rate_limited = status == 403 and response.headers.get("x-ratelimit-remaining") == "0"
+        if status >= 500 or status == 429 or rate_limited:
+            raise GitHubUnavailable(f"GitHub unavailable: HTTP {status}")
+        if status >= 400:
+            # Other 4xx (bad token, wrong repo) use the same error so callers handle one type.
+            raise GitHubUnavailable(f"GitHub request failed: HTTP {status}")
+        return response
+
+    def recent_changes(self, repo: str, since: datetime, limit: int = 10) -> list[RawChange]:
+        listing = self._get(
+            f"/repos/{repo}/commits",
+            params={"sha": "main", "since": since.isoformat(), "per_page": limit},
+        ).json()
+        dated = [(_parse_time(c["commit"]["committer"]["date"]), c) for c in listing]
+        recent = sorted((d for d in dated if d[0] >= since), key=lambda d: d[0], reverse=True)
+        return [self._change(repo, when, item) for when, item in recent[:limit]]
+
+    def _change(self, repo: str, when: datetime, item: dict) -> RawChange:
+        sha = item["sha"]
+        detail = self._get(f"/repos/{repo}/commits/{sha}").json()
+        files = detail.get("files", [])
+        patch = "\n".join(
+            f"diff --git a/{f['filename']} b/{f['filename']}\n{f.get('patch', '')}".rstrip("\n")
+            for f in files
+        )
+        head, _, body = item["commit"]["message"].partition("\n")
+        author = (item.get("author") or {}).get("login") or item["commit"]["author"]["name"]
+        return RawChange(
+            repo=repo,
+            sha=sha,
+            title=head.strip(),
+            author=author,
+            merged_at=when,
+            files=tuple(f["filename"] for f in files),
+            patch=patch,
+            body=body.strip(),
+        )
+
+    def deploy_runs(self, repo: str, since: datetime) -> list[str]:
+        response = self._get(
+            f"/repos/{repo}/actions/workflows/deploy.yml/runs",
+            ok_404=True,
+            params={"created": f">={since.date().isoformat()}", "per_page": 10},
+        )
+        if response is None:
+            return []
+        return [_run_line(run) for run in response.json()["workflow_runs"]]
+
+    def readme(self, repo: str) -> str:
+        response = self._get(
+            f"/repos/{repo}/readme", headers={"Accept": "application/vnd.github.raw+json"}
+        )
+        return response.text
+
+
+def _run_line(run: dict) -> str:
+    when = _parse_time(run["created_at"]).strftime("%Y-%m-%d %H:%M")
+    result = run.get("conclusion") or run.get("status")
+    return f"Deploy {when} UTC: {result} ({run['event']}, {run['display_title']})"
