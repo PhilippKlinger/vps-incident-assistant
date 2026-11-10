@@ -1,0 +1,25 @@
+# Secrets and local configuration never go into the image
+.env
+.env.*
+!.env.example
+
+# Version control and CI
+.git
+.gitattributes
+.gitignore
+.github
+
+# Local Python environments and caches
+.venv
+__pycache__
+*.py[cod]
+.ruff_cache
+.pytest_cache
+
+# Tests and tooling are not needed at runtime
+tests
+requirements-dev.txt
+
+# Editor settings
+.vscode
+.idea
