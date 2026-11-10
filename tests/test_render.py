@@ -194,3 +194,33 @@ def test_telegram_text_with_analysis_none_parts():
 def test_telegram_text_without_analysis():
     text = telegram_text(make_ctx(), ISSUE_URL, None)
     assert text == f"Videoflix: upstream_502 (high) · {RULE.reason} · {ISSUE_URL}"
+
+
+def test_sanitize_does_not_reassemble_links_from_brackets():
+    for text in ("h<ttps://evil.example/x", "w<ww.evil.example", "http>s://evil.example/x"):
+        out = sanitize(text, 300)
+        assert "://" not in out and "www." not in out.lower()
+
+
+def test_sanitize_removes_any_scheme():
+    for text in ("ftp://evil.example/x", "FTP://evil.example/x", "ssh+git://evil.example/x"):
+        out = sanitize(text, 300)
+        assert "://" not in out and "evil" not in out
+
+
+def test_sanitize_escapes_ampersand_entities():
+    for text in ("&commat;PhilippKlinger", "&#64;x"):
+        out = sanitize(text, 300)
+        assert "@" not in out
+        assert all(out[i - 1] == "\\" for i, ch in enumerate(out) if ch == "&")
+
+
+def test_sanitize_breaks_issue_references():
+    out = sanitize("PhilippKlinger/videoflix-backend#1 and #12", 300)
+    assert "\\#1" not in out and "\\# 1" in out and "\\# 12" in out
+
+
+def test_telegram_text_unknown_ids():
+    analysis = make_analysis(suspected_change="C9", runbook="x#y")
+    text = telegram_text(make_ctx(), ISSUE_URL, analysis)
+    assert "vermutete Ursache unbekannt · Runbook: unbekannt" in text

@@ -4,8 +4,9 @@ from datetime import timedelta
 from assistant.context import IncidentContext
 from assistant.models import Analysis
 
-_URL = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
-_ESCAPE = re.compile(r"([`*_\[\]()!#|\\])")
+_URL = re.compile(r"[a-z][a-z0-9+.-]*://\S+|www\.\S+", re.IGNORECASE)
+_ESCAPE = re.compile(r"([`*_\[\]()!#|&\\])")
+_ISSUE_REF = re.compile(r"#(\d)")
 _CONFIDENCE = {"low": "niedrig", "medium": "mittel", "high": "hoch"}
 _UNKNOWN = "unbekannt"
 
@@ -13,10 +14,13 @@ _UNKNOWN = "unbekannt"
 def sanitize(text: str, max_len: int) -> str:
     """Make untrusted text inert in GitHub Markdown: no links, mentions, images or HTML."""
     text = " ".join(text.split())
-    text = _URL.sub("", text)
+    # Brackets go first: removing them after the URL pass could reassemble "h<ttps://".
     text = text.replace("<", "").replace(">", "")
+    text = _URL.sub("", text)
     text = _ESCAPE.sub(r"\\\1", text)
-    text = text.replace("@", "(at)").strip()[:max_len]
+    text = text.replace("@", "(at)")
+    # "#12" would turn into an issue reference even when the "#" is escaped.
+    text = _ISSUE_REF.sub(r"# \1", text).strip()[:max_len]
     # A cut inside an escape pair leaves a lone backslash that would eat the next character.
     trailing = len(text) - len(text.rstrip("\\"))
     return text[:-1] if trailing % 2 else text
@@ -111,16 +115,22 @@ def analysis_comment(analysis: Analysis, ctx: IncidentContext) -> str:
     )
 
 
+def _lookup(wanted: str, rows) -> str:
+    if wanted == "none":
+        return "keine"
+    return next((label for key, label in rows if key == wanted), _UNKNOWN)
+
+
 def telegram_text(ctx: IncidentContext, issue_url: str, analysis: Analysis | None) -> str:
     name = ctx.project.display_name
     if analysis is None:
         rule = ctx.rule
         return f"{name}: {rule.category} ({rule.severity}) · {rule.reason} · {issue_url}"
-    change = "keine"
-    for c in ctx.changes:
-        if c.id == analysis.suspected_change:
-            change = f"{_short(c.repo)} {c.sha[:7]}"
-    runbook = next((a.title for a in ctx.anchors if a.id == analysis.runbook), "keine")
+    change = _lookup(
+        analysis.suspected_change,
+        ((c.id, f"{_short(c.repo)} {c.sha[:7]}") for c in ctx.changes),
+    )
+    runbook = _lookup(analysis.runbook, ((a.id, a.title) for a in ctx.anchors))
     number = issue_url.rstrip("/").rsplit("/", 1)[-1]
     return (
         f"{name}: vermutete Ursache {change} · Runbook: {runbook} · Issue #{number} · {issue_url}"
