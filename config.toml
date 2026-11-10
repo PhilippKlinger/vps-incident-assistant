@@ -1,0 +1,40 @@
+[llm]
+enabled = false          # switched on only after OPS-03 meets the thresholds
+max_runs_per_hour = 6
+
+[lifecycle]
+merge_window_minutes = 10
+
+[[projects]]
+name = "videoflix"
+display_name = "Videoflix"
+monitors = ["Videoflix · Web-App", "Videoflix · API"]
+repos = ["PhilippKlinger/videoflix-backend", "PhilippKlinger/videoflix-frontend", "PhilippKlinger/videoflix-deploy", "PhilippKlinger/vps-edge", "PhilippKlinger/vps-monitoring"]
+runbook_repos = ["PhilippKlinger/vps-edge", "PhilippKlinger/vps-monitoring", "PhilippKlinger/videoflix-deploy"]
+llm = true
+
+[[projects]]
+name = "status"
+display_name = "Statusseite"
+monitors = ["Statusseite"]
+repos = ["PhilippKlinger/videoflix-backend", "PhilippKlinger/videoflix-frontend", "PhilippKlinger/videoflix-deploy", "PhilippKlinger/vps-edge", "PhilippKlinger/vps-monitoring"]
+runbook_repos = ["PhilippKlinger/vps-edge", "PhilippKlinger/vps-monitoring", "PhilippKlinger/videoflix-deploy"]
+llm = true
+
+[[projects]]
+name = "portfolio"
+display_name = "Portfolio"
+monitors = ["Portfolio"]
+llm = false
+
+[[projects]]
+name = "neuro-check-in"
+display_name = "Neuro Check-in"
+monitors = ["Neuro Check-in · Web"]
+llm = false
+
+[[projects]]
+name = "blog"
+display_name = "Blog"
+monitors = ["Blog"]
+llm = false
