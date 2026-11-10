@@ -158,3 +158,24 @@ def test_unavailable_message_has_no_token():
     with pytest.raises(GitHubUnavailable) as exc:
         GitHubReader(client).readme("o/r")
     assert "secret-token" not in str(exc.value)
+
+
+def test_redirect_raises_unavailable():
+    reader = _reader(lambda request: httpx.Response(301, headers={"location": "https://x.test/"}))
+
+    with pytest.raises(GitHubUnavailable):
+        reader.readme("o/r")
+
+
+def test_malformed_json_raises_unavailable():
+    since = NOW - timedelta(hours=72)
+    reader = _reader(lambda request: httpx.Response(200, content=b"<html>not json"))
+
+    with pytest.raises(GitHubUnavailable) as info:
+        reader.recent_changes("o/r", since)
+    assert "Bearer" not in str(info.value)
+    with pytest.raises(GitHubUnavailable):
+        reader.deploy_runs("o/r", since)
+    shaped = _reader(lambda request: httpx.Response(200, json={"unexpected": 1}))
+    with pytest.raises(GitHubUnavailable):
+        shaped.deploy_runs("o/r", since)

@@ -4,6 +4,8 @@ from datetime import UTC, datetime
 import httpx
 
 _MARKER = "\n… gekürzt"
+# Malformed JSON or unexpected shapes are treated like an outage.
+_SHAPE_ERRORS = (ValueError, KeyError, TypeError)
 
 
 class GitHubUnavailable(Exception):
@@ -59,6 +61,9 @@ class GitHubReader:
         except httpx.TransportError as exc:
             raise GitHubUnavailable(f"GitHub not reachable: {type(exc).__name__}") from None
         status = response.status_code
+        if 300 <= status < 400:
+            # Redirects are not followed; a moved repo must not yield a half-read answer.
+            raise GitHubUnavailable(f"GitHub redirected: HTTP {status}")
         if status == 404 and ok_404:
             return None
         rate_limited = status == 403 and response.headers.get("x-ratelimit-remaining") == "0"
@@ -70,6 +75,12 @@ class GitHubReader:
         return response
 
     def recent_changes(self, repo: str, since: datetime, limit: int = 10) -> list[RawChange]:
+        try:
+            return self._recent_changes(repo, since, limit)
+        except _SHAPE_ERRORS:
+            raise GitHubUnavailable("GitHub returned an unexpected response") from None
+
+    def _recent_changes(self, repo: str, since: datetime, limit: int) -> list[RawChange]:
         listing = self._get(
             f"/repos/{repo}/commits",
             params={"sha": "main", "since": since.isoformat(), "per_page": limit},
@@ -107,7 +118,10 @@ class GitHubReader:
         )
         if response is None:
             return []
-        return [_run_line(run) for run in response.json()["workflow_runs"]]
+        try:
+            return [_run_line(run) for run in response.json()["workflow_runs"]]
+        except _SHAPE_ERRORS:
+            raise GitHubUnavailable("GitHub returned an unexpected response") from None
 
     def readme(self, repo: str) -> str:
         response = self._get(
