@@ -124,6 +124,7 @@ def test_request_payload():
     assert body["format"] == analysis_schema()
     assert body["options"] == {"temperature": 0}
     assert body["model"] == "m"
+    assert seen[0].extensions["timeout"]["read"] == 300
     assert out == _answer()
 
 
@@ -183,7 +184,9 @@ def test_build_messages_structure():
     assert "C1 · o/a · abcdef1 · 2026-11-10T12:00:00+00:00" in user
     assert "o/a#502" in user
     assert "upstream_502" in user
-    assert "none" in user
+    assert "suspected_change: C1, none" in user
+    assert "runbook: o/a#502, none" in user
+    assert "evidence: F1, C1" in user
 
 
 def test_untrusted_text_cannot_close_block():
@@ -205,3 +208,22 @@ def test_rate_limiter_allows_six_per_hour():
     assert limiter.allow() is False
     now[0] = 3601
     assert limiter.allow() is True
+
+
+def test_valid_answer_with_whitespace_accepted():
+    assert validate_analysis("  " + _answer() + "\n", _ctx())
+
+
+def test_analyze_null_content_unavailable():
+    client = _client(lambda r: httpx.Response(200, json={"message": {"content": None}}))
+    assert analyze(_ctx(), client) == Unavailable("Modell nicht erreichbar")
+
+
+def test_prompt_bug_propagates(monkeypatch):
+    def boom(ctx, nonce):
+        raise RuntimeError("bug")
+
+    monkeypatch.setattr("assistant.llm.build_messages", boom)
+    client = _client(lambda r: httpx.Response(200, json={"message": {"content": _answer()}}))
+    with pytest.raises(RuntimeError):
+        analyze(_ctx(), client)

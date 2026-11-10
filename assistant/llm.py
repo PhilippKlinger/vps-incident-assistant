@@ -25,6 +25,10 @@ class AnalysisRejected(Exception):
         self.reason = reason
 
 
+class _BadResponse(Exception):
+    """Ollama answered, but not in the expected shape."""
+
+
 @dataclass(frozen=True)
 class Unavailable:
     reason: str
@@ -99,7 +103,13 @@ class OllamaClient:
             timeout=self._timeout,
         )
         response.raise_for_status()
-        return response.json()["message"]["content"]
+        try:
+            content = response.json()["message"]["content"]
+        except (KeyError, TypeError, ValueError) as error:
+            raise _BadResponse from error
+        if not isinstance(content, str):
+            raise _BadResponse
+        return content
 
 
 def validate_analysis(raw: str, ctx: IncidentContext) -> Analysis:
@@ -119,31 +129,28 @@ def validate_analysis(raw: str, ctx: IncidentContext) -> Analysis:
     return analysis
 
 
-def _attempt(ctx: IncidentContext, ollama: OllamaClient, nonce: str) -> Analysis | str:
-    """Return a valid Analysis or the German reason why this attempt failed."""
-    try:
-        raw = ollama.chat(build_messages(ctx, nonce), analysis_schema())
-        return validate_analysis(raw, ctx)
-    except httpx.TimeoutException:
-        return "Zeitlimit erreicht"
-    except (httpx.TransportError, httpx.HTTPStatusError, KeyError, TypeError, ValueError):
-        # ValueError covers a non-JSON body; AnalysisRejected is handled below.
-        return "Modell nicht erreichbar"
-    except AnalysisRejected as error:
-        log.warning("analysis rejected: %s", error.reason)
-        return "Antwort ungültig"
+def _failed(reason: str, error: Exception) -> str:
+    log.warning("llm attempt failed: %s (%s)", reason, type(error).__name__)
+    return reason
 
 
 def analyze(
     ctx: IncidentContext, ollama: OllamaClient, attempts: int = 2
 ) -> Analysis | Unavailable:
-    nonce = secrets.token_hex(8)
+    # Built outside the error handling so a bug here is not reported as a model outage.
+    messages = build_messages(ctx, secrets.token_hex(8))
+    schema = analysis_schema()
     reason = "Modell nicht erreichbar"
     for _ in range(attempts):
-        result = _attempt(ctx, ollama, nonce)
-        if isinstance(result, Analysis):
-            return result
-        reason = result
+        try:
+            raw = ollama.chat(messages, schema)
+            return validate_analysis(raw, ctx)
+        except httpx.TimeoutException as error:
+            reason = _failed("Zeitlimit erreicht", error)
+        except (httpx.TransportError, httpx.HTTPStatusError, _BadResponse) as error:
+            reason = _failed("Modell nicht erreichbar", error)
+        except AnalysisRejected as error:
+            reason = _failed("Antwort ungültig", error)
     return Unavailable(reason)
 
 
