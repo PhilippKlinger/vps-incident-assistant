@@ -1,0 +1,19 @@
+{
+  "heartbeat": {
+    "monitorID": 3,
+    "status": 1,
+    "time": "2026-11-10 14:09:45.120",
+    "msg": "200 - OK",
+    "important": true,
+    "duration": 393,
+    "ping": 41
+  },
+  "monitor": {
+    "id": 3,
+    "name": "Videoflix · API",
+    "type": "http",
+    "url": "https://videoflix.philipp-klinger.com/api/health/",
+    "interval": 60
+  },
+  "msg": "[Videoflix · API] [✅ Up] 200 - OK"
+}
