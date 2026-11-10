@@ -229,14 +229,19 @@ jobs:
         run: docker build --tag "${ASSISTANT_IMAGE}" .
 
       # Official Trivy image pinned by digest instead of a third-party action.
-      # Fails on high and critical findings that already have a fix.
+      # High and critical findings that already have a fix count. Both scans always run,
+      # the last step fails the job, so one run shows the findings of both images.
       - name: Scan built image with Trivy
+        id: scan-assistant
+        continue-on-error: true
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "${TRIVY_IMAGE}" \
             image --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "${ASSISTANT_IMAGE}"
 
       # Both Ollama services use the same pinned image; Trivy pulls it from the registry.
       - name: Scan pinned Ollama image with Trivy
+        id: scan-ollama
+        continue-on-error: true
         run: |
           set -Eeuo pipefail
           image="$(sed -n 's/^ *image: *\(ollama\/ollama:.*\)$/\1/p' compose.yaml | sort -u)"
@@ -244,6 +249,12 @@ jobs:
           test "$(wc -l <<< "${image}")" = "1"
           docker run --rm "${TRIVY_IMAGE}" \
             image --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "${image}"
+
+      - name: Fail on findings
+        if: steps.scan-assistant.outcome != 'success' || steps.scan-ollama.outcome != 'success'
+        run: |
+          echo "::error::Trivy found high or critical vulnerabilities with a fix (see the scan steps above)"
+          exit 1
 
   image:
     name: Build image
