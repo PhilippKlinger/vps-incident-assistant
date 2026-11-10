@@ -9,16 +9,27 @@
 .gitignore
 .github
 
-# Local Python environments and caches
+# Local Python environments and caches (also inside assistant/)
 .venv
-__pycache__
-*.py[cod]
+**/__pycache__
+**/*.py[cod]
 .ruff_cache
 .pytest_cache
 
 # Tests and tooling are not needed at runtime
 tests
 requirements-dev.txt
+pyproject.toml
+
+# Ollama models (bind mount on the server, several GB)
+models
+
+# Container and documentation files themselves
+Dockerfile
+.dockerignore
+compose.yaml
+.trivyignore.yaml
+README.md
 
 # Editor settings
 .vscode

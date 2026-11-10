@@ -21,3 +21,27 @@ updates:
       default-days: 14
     commit-message:
       prefix: "ci(deps)"
+
+  # Base image in Dockerfile
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 14
+    commit-message:
+      prefix: "chore(deps)"
+    # Python 3.13 is the chosen version; a newer one is a planned decision.
+    ignore:
+      - dependency-name: "python"
+        versions: [">= 3.14"]
+
+  # Ollama image in compose.yaml
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 14
+    commit-message:
+      prefix: "chore(deps)"
