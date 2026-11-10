@@ -2,7 +2,10 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from assistant.models import parse_kuma
+import pytest
+from pydantic import ValidationError
+
+from assistant.models import Analysis, parse_kuma
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -70,3 +73,20 @@ def test_parse_unhashable_status_returns_none():
     payload = load("kuma_down.json")
     payload["heartbeat"]["status"] = [0]
     assert parse_kuma(payload) is None
+
+
+def test_analysis_rejects_extra_field_and_empty_evidence():
+    valid = {
+        "suspected_change": "C1",
+        "change_reasoning": "r",
+        "runbook": "none",
+        "runbook_reasoning": "r",
+        "summary": "s",
+        "evidence": ["F1"],
+        "confidence": "low",
+    }
+    assert Analysis(**valid).evidence == ["F1"]
+    with pytest.raises(ValidationError):
+        Analysis(**valid, severity="high")
+    with pytest.raises(ValidationError):
+        Analysis(**{**valid, "evidence": []})
