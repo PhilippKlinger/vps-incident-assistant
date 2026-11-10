@@ -221,9 +221,9 @@ def test_analyze_null_content_unavailable():
 
 def test_prompt_bug_propagates(monkeypatch):
     def boom(ctx, nonce):
-        raise RuntimeError("bug")
+        raise KeyError("bug")
 
     monkeypatch.setattr("assistant.llm.build_messages", boom)
     client = _client(lambda r: httpx.Response(200, json={"message": {"content": _answer()}}))
-    with pytest.raises(RuntimeError):
+    with pytest.raises(KeyError):
         analyze(_ctx(), client)

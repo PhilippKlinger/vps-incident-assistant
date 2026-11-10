@@ -130,7 +130,10 @@ def validate_analysis(raw: str, ctx: IncidentContext) -> Analysis:
 
 
 def _failed(reason: str, error: Exception) -> str:
-    log.warning("llm attempt failed: %s (%s)", reason, type(error).__name__)
+    detail = type(error).__name__
+    if isinstance(error, AnalysisRejected):
+        detail += f": {error.reason}"  # fixed English code, no model content
+    log.warning("llm attempt failed: %s (%s)", reason, detail)
     return reason
 
 
@@ -147,7 +150,7 @@ def analyze(
             return validate_analysis(raw, ctx)
         except httpx.TimeoutException as error:
             reason = _failed("Zeitlimit erreicht", error)
-        except (httpx.TransportError, httpx.HTTPStatusError, _BadResponse) as error:
+        except (httpx.RequestError, httpx.HTTPStatusError, _BadResponse) as error:
             reason = _failed("Modell nicht erreichbar", error)
         except AnalysisRejected as error:
             reason = _failed("Antwort ungültig", error)
