@@ -239,6 +239,7 @@ jobs:
             image --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "${ASSISTANT_IMAGE}"
 
       # Both Ollama services use the same pinned image; Trivy pulls it from the registry.
+      # Accepted upstream risks with reason and expiry date: .trivyignore.yaml (Ollama only).
       - name: Scan pinned Ollama image with Trivy
         id: scan-ollama
         continue-on-error: true
@@ -247,8 +248,9 @@ jobs:
           image="$(sed -n 's/^ *image: *\(ollama\/ollama:.*\)$/\1/p' compose.yaml | sort -u)"
           echo "Image: ${image}"
           test "$(wc -l <<< "${image}")" = "1"
-          docker run --rm "${TRIVY_IMAGE}" \
-            image --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "${image}"
+          docker run --rm -v "${PWD}/.trivyignore.yaml:/trivyignore.yaml:ro" "${TRIVY_IMAGE}" \
+            image --no-progress --severity HIGH,CRITICAL --ignore-unfixed \
+            --ignorefile /trivyignore.yaml --exit-code 1 "${image}"
 
       - name: Fail on findings
         if: steps.scan-assistant.outcome != 'success' || steps.scan-ollama.outcome != 'success'
