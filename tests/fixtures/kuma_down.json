@@ -1,0 +1,19 @@
+{
+  "heartbeat": {
+    "monitorID": 3,
+    "status": 0,
+    "time": "2026-11-10 14:03:12.345",
+    "msg": "Request failed with status code 502",
+    "important": true,
+    "duration": 0,
+    "ping": null
+  },
+  "monitor": {
+    "id": 3,
+    "name": "Videoflix · API",
+    "type": "http",
+    "url": "https://videoflix.philipp-klinger.com/api/health/",
+    "interval": 60
+  },
+  "msg": "[Videoflix · API] [🔴 Down] Request failed with status code 502"
+}
