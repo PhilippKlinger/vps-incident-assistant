@@ -135,3 +135,7 @@ def telegram_text(ctx: IncidentContext, issue_url: str, analysis: Analysis | Non
     return (
         f"{name}: vermutete Ursache {change} · Runbook: {runbook} · Issue #{number} · {issue_url}"
     )
+
+
+def monitor_up_comment(monitor_name: str) -> str:
+    return f"{sanitize(monitor_name, 120)} wieder erreichbar, weitere Monitore noch gestört."

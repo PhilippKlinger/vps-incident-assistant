@@ -9,6 +9,7 @@ from assistant.render import (
     flap_comment,
     issue_body,
     issue_title,
+    monitor_up_comment,
     resolved_comment,
     sanitize,
     telegram_text,
@@ -224,3 +225,9 @@ def test_telegram_text_unknown_ids():
     analysis = make_analysis(suspected_change="C9", runbook="x#y")
     text = telegram_text(make_ctx(), ISSUE_URL, analysis)
     assert "vermutete Ursache unbekannt · Runbook: unbekannt" in text
+
+
+def test_monitor_up_comment_sanitizes_name():
+    text = monitor_up_comment("Videoflix · API @evil")
+    assert "wieder erreichbar" in text
+    assert "@" not in text
