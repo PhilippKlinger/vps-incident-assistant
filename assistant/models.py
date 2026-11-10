@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 # Kuma heartbeat.status values we act on; pending (2) and maintenance (3) are ignored.
 _STATUS = {0: "down", 1: "up"}
@@ -43,6 +43,20 @@ class RunbookAnchor(_Frozen):
     repo: str
     title: str
     text: str
+
+
+class Analysis(BaseModel):
+    """LLM output; Task 8 validates the IDs against the context."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    suspected_change: str
+    change_reasoning: str = Field(max_length=400)
+    runbook: str
+    runbook_reasoning: str = Field(max_length=300)
+    summary: str = Field(max_length=300)
+    evidence: list[str] = Field(min_length=1)
+    confidence: Literal["low", "medium", "high"]
 
 
 def _parse_time(value: object) -> datetime | None:
