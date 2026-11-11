@@ -1,0 +1,469 @@
+[
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "889e66d496c7d0044c49968094b747245bb1ebad",
+    "title": "fix: show only one loading indicator while the video loads",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-08T13:27:22+00:00",
+    "files": [
+      "src/app/video-player/video-player.component.html",
+      "src/app/video-player/video-player.component.spec.ts"
+    ],
+    "patch": "diff --git a/src/app/video-player/video-player.component.html b/src/app/video-player/video-player.component.html\n@@ -9,7 +9,8 @@ <h2 class=\"player-title\">{{ video.title }}</h2>\n     <p class=\"processing-message\">This video cannot be played right now. Please try again later.</p>\n   } @else if (selectedResolution) {\n     <div class=\"player-stage\">\n-      <video #videoPlayer controls autoplay controlslist=\"nofullscreen\" [attr.poster]=\"video.thumbnail_url\"\n+      <!-- Native controls bring their own spinner; they appear once the own loading bar is gone. -->\n+      <video #videoPlayer [controls]=\"!loading\" autoplay controlslist=\"nofullscreen\" [attr.poster]=\"video.thumbnail_url\"\n         (loadedmetadata)=\"onLoadedMetadata()\" (canplay)=\"onCanPlay()\" (error)=\"onVideoError()\"></video>\n       <!-- The native controls cannot be extended, so the own controls sit in a bar below the video. -->\n       <div class=\"player-bar\">\ndiff --git a/src/app/video-player/video-player.component.spec.ts b/src/app/video-player/video-player.component.spec.ts\n@@ -120,6 +120,14 @@ describe('VideoPlayerComponent', () => {\n       expect(fixture.nativeElement.querySelector('.loading')).toBeNull();\n     });\n \n+    it('hides the native controls while loading, so their spinner does not show twice', () => {\n+      httpMock.expectOne('/api/me/').flush({});\n+      expect(videoElement().controls).toBeFalse();\n+      videoElement().dispatchEvent(new Event('canplay'));\n+      fixture.detectChanges();\n+      expect(videoElement().controls).toBeTrue();\n+    });\n+\n     it('hides the loading state on error and shows the friendly message', async () => {\n       await sessionOk();\n       videoElement().dispatchEvent(new Event('error'));",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "be2c976010f9b02a13a8d6deff8346f4900ca5f7",
+    "title": "fix: use the new cover image behind the legal pages",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-08T13:27:22+00:00",
+    "files": [
+      "src/app/authentication/auth-layout/auth-layout.component.spec.ts",
+      "src/app/authentication/auth-layout/auth-layout.component.ts",
+      "src/assets/backgrounds/start.webp"
+    ],
+    "patch": "diff --git a/src/app/authentication/auth-layout/auth-layout.component.spec.ts b/src/app/authentication/auth-layout/auth-layout.component.spec.ts\n@@ -41,7 +41,7 @@ describe('AuthLayoutComponent', () => {\n \n   it('keeps the background image and overlay unless the page brings its own', () => {\n     const container: HTMLElement = fixture.nativeElement.querySelector('.auth-container');\n-    expect(container.style.backgroundImage).toContain('/assets/backgrounds/start.webp');\n+    expect(container.style.backgroundImage).toContain('/assets/backgrounds/cover.webp');\n     expect(container.classList).not.toContain('own-background');\n \n     fixture.componentRef.setInput('backgroundImage', '');\ndiff --git a/src/app/authentication/auth-layout/auth-layout.component.ts b/src/app/authentication/auth-layout/auth-layout.component.ts\n@@ -12,7 +12,7 @@ import { BUILD_STORY_URL } from 'src/app/links';\n   styleUrl: './auth-layout.component.scss'\n })\n export class AuthLayoutComponent {\n-  @Input() backgroundImage: string = '/assets/backgrounds/start.webp';\n+  @Input() backgroundImage: string = '/assets/backgrounds/cover.webp';\n   @Input() showBuildLink = false;\n   readonly buildStoryUrl = BUILD_STORY_URL;\n \ndiff --git a/src/assets/backgrounds/start.webp b/src/assets/backgrounds/start.webp",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "85ecc765217683dcf79f05bc806cf0700e43c537",
+    "title": "docs: shorten the privacy policy to the required facts",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T20:03:35+00:00",
+    "files": [
+      "src/app/legal/legal-pages.spec.ts",
+      "src/app/legal/privacy.component.html"
+    ],
+    "patch": "diff --git a/src/app/legal/legal-pages.spec.ts b/src/app/legal/legal-pages.spec.ts\n@@ -38,7 +38,7 @@ describe('Legal pages', () => {\n       'Hosting und Server-Logs',\n       'Konto, Demo und Videos',\n       'E-Mails',\n-      'Cookies',\n+      'Cookies und Browser-Speicher',\n       'Ihre Rechte',\n     ]);\n     expect(text()).toContain('nach 2 Stunden');\n@@ -51,14 +51,14 @@ describe('Legal pages', () => {\n     expect(text()).toContain('etwa zwei Wochen');\n     expect(text()).toContain('Ohne E-Mail-Adresse ist kein Konto möglich');\n     // Statements must match what the code and the server really do\n-    expect(text()).toContain('sowie die IP-Adresse enthalten');\n+    expect(text()).toContain('können IP-Adresse, Zeitpunkt und aufgerufene Adresse enthalten');\n     expect(text()).toContain('höchstens eine Stunde');\n     expect(text()).toContain('videoflix.underTheHood');\n     expect(text()).toContain('Under the hood');\n     expect(text()).not.toContain('Startseite');\n-    expect(text()).toContain('Zeitpunkt der Registrierung und der letzten Anmeldung');\n-    expect(text()).toContain('Titel und Beschreibung Ihrer Uploads');\n+    expect(text()).toContain('Zeitpunkt von Registrierung und letzter Anmeldung');\n+    expect(text()).toContain('Uploads mit Titel und Beschreibung');\n     expect(text()).not.toContain('Wiedergabefortschritt');\n-    expect(text()).toContain('sofort und endgültig gelöscht');\n+    expect(text()).toContain('werden dann sofort gelöscht');\n   });\n });\ndiff --git a/src/app/legal/privacy.component.html b/src/app/legal/privacy.component.html\n@@ -12,23 +12,24 @@ <h2>Verantwortlicher</h2>\n     <h2>Hosting und Server-Logs</h2>\n     <p>\n       Hoster ist die Hostinger International Ltd., 61 Lordou Vironos str., 6023 Larnaca, Zypern\n-      (Server in Frankfurt am Main, Auftragsverarbeitung nach Art. 28 DSGVO). Einzelne Seitenaufrufe werden nicht\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "842b0a74f403a316fe219349e18914e67c646942",
+    "title": "fix: keep the new-activation-link request out of the global error interceptor and accept string title errors",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T19:56:27+00:00",
+    "files": [
+      "src/app/main-view/video-upload/video-upload.component.spec.ts",
+      "src/app/main-view/video-upload/video-upload.component.ts",
+      "src/app/services/api.service.spec.ts",
+      "src/app/services/api.service.ts"
+    ],
+    "patch": "diff --git a/src/app/main-view/video-upload/video-upload.component.spec.ts b/src/app/main-view/video-upload/video-upload.component.spec.ts\n@@ -120,6 +120,16 @@ describe('VideoUploadComponent', () => {\n     expect(text()).not.toContain('try again later');\n   });\n \n+  it('shows a backend title error that arrives as a plain string', () => {\n+    fillForm();\n+    component.onSubmit();\n+    httpMock.expectOne('/api/upload/').flush(\n+      { title: 'Title is not allowed.' },\n+      { status: 400, statusText: 'Bad Request' }\n+    );\n+    expect(text()).toContain('Title is not allowed.');\n+  });\n+\n   it('shows the backend message for a resolution or frame rate that is too high', () => {\n     for (const message of ['The video resolution is too large.', 'The frame rate must not be higher than 120 fps.']) {\n       fillForm();\ndiff --git a/src/app/main-view/video-upload/video-upload.component.ts b/src/app/main-view/video-upload/video-upload.component.ts\n@@ -93,7 +93,8 @@ export class VideoUploadComponent {\n   private messageFor(error: HttpErrorResponse): string {\n     if (error.status === 400) {\n       const fileError = error.error?.video_file?.[0];\n-      const titleError = error.error?.title?.[0];\n+      const titleField = error.error?.title;\n+      const titleError = Array.isArray(titleField) ? titleField[0] : titleField;\n       const detail = error.error?.detail;\n       if (typeof fileError === 'string') return fileError;\n       if (typeof titleError === 'string') return titleError;\ndiff --git a/src/app/services/api.service.spec.ts b/src/app/services/api.service.spec.ts\n@@ -132,6 +132,7 @@ describe('ApiService', () => {\n       ['/api/register/', () => service.registerUser({ email: 'a@b.de', password: 'x', confirmed_password: 'x' }).subscribe()],\n       ['/api/login/', () => service.loginUser({ email: 'a@b.de', password: 'x' }).subscribe()],\n       ['/api/password_reset/', () => service.forgotPassword({ email: 'a@b.de' }).subscribe()],\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "2265f26b873fb7f7765ba50a50c330f061720610",
+    "title": "docs: replace the generated README with a project README",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T19:54:23+00:00",
+    "files": [
+      "README.md"
+    ],
+    "patch": "diff --git a/README.md b/README.md\n@@ -1,39 +1,24 @@\n-# Videoflix\n+# Videoflix Frontend\n \n-This project was generated with [Angular CLI](https://github.com/angular/angular-cli) version 16.2.12.\n+Single-page web app for Videoflix, a small video streaming platform: sign up and log in, browse the catalog, watch HLS streams, and upload your own clips. It talks to the Django REST API in [videoflix-backend](https://github.com/PhilippKlinger/videoflix-backend).\n \n-## Development server\n+## Stack\n \n-Run `ng serve` for a dev server. Navigate to `http://localhost:4200/`. The application will automatically reload if you change any of the source files.\n+- Angular 22.2 with standalone components, Angular Material 22.2\n+- TypeScript 6.0, RxJS 7.8\n+- hls.js 1.7 for playback\n+- Karma and Jasmine for unit tests, Playwright for end-to-end tests\n \n-## Code scaffolding\n+## Commands\n \n-Run `ng generate component component-name` to generate a new component. You can also use `ng generate directive|pipe|service|class|guard|interface|enum|module`.\n+```bash\n+npm ci          # install dependencies\n+npm start       # dev server on http://localhost:4200, proxies /api to the backend (proxy.conf.json)\n+npm test        # unit tests\n+npm run build   # production build, output in dist/videoflix/browser\n+npm run e2e     # Playwright tests (need a running backend)\n+```\n \n-## Build\n+## Deployment\n \n-Run `ng build` to build the project. The build artifacts will be stored in the `dist/` directory.\n-\n-## Running unit tests\n-\n-Run `ng test` to execute the unit tests via [Karma](https://karma-runner.github.io).\n-\n-## Running end-to-end tests\n-\n-The end-to-end tests use [Playwright](https://playwright.dev) and run against the local dev stack:\n-\n-1. Start the backend with `docker compose --profile dev up -d` (includes Mailpit for the activation mails).\n-2. Start the frontend with `npm start`.\n-3. Once: `npx playwright install chromium`.\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "cd742d293a0c3eca4f53ca82e8aec9fbbd96fdb0",
+    "title": "fix: correct misleading UI texts and show backend upload errors for title and video limits",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T19:54:12+00:00",
+    "files": [
+      "src/app/authentication/register/register.component.ts",
+      "src/app/authentication/reset-password/reset-password.component.ts",
+      "src/app/main-view/video-upload/video-upload.component.spec.ts",
+      "src/app/main-view/video-upload/video-upload.component.ts"
+    ],
+    "patch": "diff --git a/src/app/authentication/register/register.component.ts b/src/app/authentication/register/register.component.ts\n@@ -84,7 +84,7 @@ export class RegisterComponent implements OnInit {\n         this.registerSuccess = true;\n         this.requestloading = false;\n \n-        this.snackBar.open('Registration successful! Redirect...', 'OK', { duration: 3000 });\n+        this.snackBar.open('Registration successful! Please check your email.', 'OK', { duration: 3000 });\n \n       },\n       error: (error) => {\ndiff --git a/src/app/authentication/reset-password/reset-password.component.ts b/src/app/authentication/reset-password/reset-password.component.ts\n@@ -84,7 +84,7 @@ export class ResetPasswordComponent implements OnInit, OnDestroy {\n       next: () => {\n         this.loading = false;\n         this.resetSuccess = true;\n-        this.snackBar.open('Password reset succesfully! Redirect...', 'OK', { duration: 3000 });\n+        this.snackBar.open('Password reset successfully! Redirecting...', 'OK', { duration: 3000 });\n         this.countdownTimer = setInterval(() => {\n           this.timeLeft--;\n           if (this.timeLeft <= 0) {\ndiff --git a/src/app/main-view/video-upload/video-upload.component.spec.ts b/src/app/main-view/video-upload/video-upload.component.spec.ts\n@@ -101,6 +101,37 @@ describe('VideoUploadComponent', () => {\n     });\n   });\n \n+  it('rejects a title that only consists of whitespace', () => {\n+    fillForm();\n+    component.uploadForm.patchValue({ title: '    ' });\n+    expect(component.uploadForm.controls.title.hasError('blank')).toBeTrue();\n+    component.onSubmit();\n+    httpMock.expectNone('/api/upload/');\n+  });\n+\n+  it('shows the backend message for a rejected title', () => {\n+    fillForm();\n+    component.onSubmit();\n+    httpMock.expectOne('/api/upload/').flush(\n+      { title: ['This field may not be blank.'] },\n+      { status: 400, statusText: 'Bad Request' }\n+    );\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "fdb75b6223d73a923609ffb34793f11fe8839165",
+    "title": "feat: let users request a new activation link from the activation error page",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T19:53:37+00:00",
+    "files": [
+      "src/app/authentication/activate/activate.component.html",
+      "src/app/authentication/activate/activate.component.spec.ts",
+      "src/app/authentication/activate/activate.component.ts"
+    ],
+    "patch": "diff --git a/src/app/authentication/activate/activate.component.html b/src/app/authentication/activate/activate.component.html\n@@ -7,6 +7,28 @@ <h1>Welcome!</h1>\n     } @else if (failed) {\n       <h1>Link not valid</h1>\n       <p class=\"subtitle\">This activation link is invalid or has expired.</p>\n+      @if (resent) {\n+        <p class=\"subtitle\" role=\"status\">If this address needs activation, we have sent a new link.</p>\n+      } @else {\n+        <form [formGroup]=\"resendForm\" (ngSubmit)=\"resend()\">\n+          <p class=\"subtitle\">Enter your email address to get a new link.</p>\n+          <mat-form-field appearance=\"outline\" class=\"full-width\">\n+            <mat-label>Email Address</mat-label>\n+            <input matInput type=\"email\" formControlName=\"email\" autocomplete=\"email\" autocapitalize=\"off\">\n+            <mat-icon matPrefix>mail</mat-icon>\n+            @if (resendForm.controls.email.hasError('email') && resendForm.controls.email.touched) {\n+              <mat-error>Please enter a valid email</mat-error>\n+            }\n+          </mat-form-field>\n+          @if (resendError) {\n+            <p class=\"form-error\" role=\"alert\">Could not send a new link. Please try again in a moment.</p>\n+          }\n+          <button mat-flat-button color=\"primary\" class=\"submit-btn\" type=\"submit\"\n+            [disabled]=\"resendForm.invalid || loading\">\n+            Send new link\n+          </button>\n+        </form>\n+      }\n       <a mat-flat-button color=\"primary\" class=\"submit-btn\" routerLink=\"/login\">Back to login</a>\n     } @else {\n       <div class=\"shape-loader-container\">\ndiff --git a/src/app/authentication/activate/activate.component.spec.ts b/src/app/authentication/activate/activate.component.spec.ts\n@@ -9,6 +9,7 @@ import { ApiService } from 'src/app/services/api.service';\n describe('ActivateComponent', () => {\n   let fixture: ComponentFixture<ActivateComponent>;\n   let activateSpy: jasmine.Spy;\n+  let newLinkSpy: jasmine.Spy;\n \n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "caccf5d748706ea23161f8b5f0cf54052fa3f263",
+    "title": "fix: use email inputs without auto-capitalisation on the auth forms",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T19:53:22+00:00",
+    "files": [
+      "src/app/authentication/forgot-password/forgot-password.component.html",
+      "src/app/authentication/forgot-password/forgot-password.component.spec.ts",
+      "src/app/authentication/login/login.component.html",
+      "src/app/authentication/login/login.component.spec.ts",
+      "src/app/authentication/register/register.component.html",
+      "src/app/authentication/register/register.component.spec.ts"
+    ],
+    "patch": "diff --git a/src/app/authentication/forgot-password/forgot-password.component.html b/src/app/authentication/forgot-password/forgot-password.component.html\n@@ -6,7 +6,7 @@ <h1>Forgot your<br>password?</h1>\n         <p class=\"subtitle\">We will send you an email with instructions to reset your password.</p>\n         <mat-form-field appearance=\"outline\" class=\"full-width\">\n           <mat-label>Email Address</mat-label>\n-          <input matInput formControlName=\"email\" autocomplete=\"email\">\n+          <input matInput type=\"email\" formControlName=\"email\" autocomplete=\"email\" autocapitalize=\"off\">\n           <mat-icon matPrefix>mail</mat-icon>\n           @if (forgotForm.get('email')?.hasError('required') && forgotForm.get('email')?.touched) {\n             <mat-error>\ndiff --git a/src/app/authentication/forgot-password/forgot-password.component.spec.ts b/src/app/authentication/forgot-password/forgot-password.component.spec.ts\n@@ -24,6 +24,13 @@ describe('ForgotPasswordComponent', () => {\n     fixture.detectChanges();\n   });\n \n+  it('uses an email keyboard and no auto-capitalisation on the email field', () => {\n+    const input: HTMLInputElement = fixture.nativeElement.querySelector('input[matInput]');\n+    expect(input.type).toBe('email');\n+    expect(input.getAttribute('autocapitalize')).toBe('off');\n+    expect(input.getAttribute('autocomplete')).toBe('email');\n+  });\n+\n   it('should create', () => {\n     expect(component).toBeTruthy();\n   });\ndiff --git a/src/app/authentication/login/login.component.html b/src/app/authentication/login/login.component.html\n@@ -10,7 +10,7 @@\n         <h1>Log in</h1>\n         <mat-form-field appearance=\"outline\" class=\"full-width\">\n           <mat-label>Email Address</mat-label>\n-          <input matInput formControlName=\"email\" autocomplete=\"username\">\n+          <input matInput type=\"email\" formControlName=\"email\" autocomplete=\"username\" autocapitalize=\"off\">\n           <mat-icon matPrefix>mail</mat-icon>\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "67e9fd91d01a2e11b9cac87628977946fed762fa",
+    "title": "fix: align the privacy policy with stored data, logs and deletion",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T19:52:55+00:00",
+    "files": [
+      "src/app/legal/legal-pages.spec.ts",
+      "src/app/legal/privacy.component.html"
+    ],
+    "patch": "diff --git a/src/app/legal/legal-pages.spec.ts b/src/app/legal/legal-pages.spec.ts\n@@ -50,5 +50,15 @@ describe('Legal pages', () => {\n     expect(text()).toContain('Einzelne Seitenaufrufe werden nicht');\n     expect(text()).toContain('etwa zwei Wochen');\n     expect(text()).toContain('Ohne E-Mail-Adresse ist kein Konto möglich');\n+    // Statements must match what the code and the server really do\n+    expect(text()).toContain('sowie die IP-Adresse enthalten');\n+    expect(text()).toContain('höchstens eine Stunde');\n+    expect(text()).toContain('videoflix.underTheHood');\n+    expect(text()).toContain('Under the hood');\n+    expect(text()).not.toContain('Startseite');\n+    expect(text()).toContain('Zeitpunkt der Registrierung und der letzten Anmeldung');\n+    expect(text()).toContain('Titel und Beschreibung Ihrer Uploads');\n+    expect(text()).not.toContain('Wiedergabefortschritt');\n+    expect(text()).toContain('sofort und endgültig gelöscht');\n   });\n });\ndiff --git a/src/app/legal/privacy.component.html b/src/app/legal/privacy.component.html\n@@ -13,8 +13,8 @@ <h2>Hosting und Server-Logs</h2>\n     <p>\n       Hoster ist die Hostinger International Ltd., 61 Lordou Vironos str., 6023 Larnaca, Zypern\n       (Server in Frankfurt am Main, Auftragsverarbeitung nach Art. 28 DSGVO). Einzelne Seitenaufrufe werden nicht\n-      protokolliert. Fehlermeldungen des Servers können Zeitpunkt und aufgerufene Adresse enthalten; die Logs werden\n-      nach spätestens 14 Tagen gelöscht.\n+      protokolliert. Fehlermeldungen des Servers können Zeitpunkt und aufgerufene Adresse sowie die IP-Adresse enthalten;\n+      die Logs werden nach spätestens 14 Tagen gelöscht.\n       Zum Schutz vor Missbrauch wird die IP-Adresse höchstens eine Stunde zur Begrenzung von Anfragen gespeichert.\n       Datenbank und Videos werden auf demselben Server gesichert. Gelöschte Daten können darin noch etwa zwei Wochen\n       enthalten sein, danach werden die Sicherungen gelöscht.\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "50849b0d8319fc3af134390a7b512b914a519527",
+    "title": "fix: place the stream inspector below Play and make its reserve and focus visible",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T15:51:14+00:00",
+    "files": [
+      "e2e/layout.spec.ts",
+      "src/app/main-view/browse/browse.component.spec.ts",
+      "src/app/main-view/main-layout/main-layout.component.scss",
+      "src/app/main-view/main-layout/main-layout.component.ts",
+      "src/app/main-view/stream-inspector/stream-inspector.component.scss",
+      "src/app/main-view/stream-inspector/stream-inspector.component.spec.ts",
+      "src/app/main-view/stream-inspector/stream-inspector.component.ts",
+      "src/app/main-view/video-details/video-details.component.html",
+      "src/app/main-view/video-details/video-details.component.spec.ts",
+      "src/app/models/video-tech.ts"
+    ],
+    "patch": "diff --git a/e2e/layout.spec.ts b/e2e/layout.spec.ts\n@@ -145,7 +145,8 @@ async function checkDetailsDialog(page: Page, testInfo: TestInfo): Promise<void>\n   await test.step('switch on shows the stream table or its calm fallback', async () => {\n     const inspector = dialog.locator('app-stream-inspector');\n     await expect(inspector.getByText('Upload → ffprobe → ffmpeg → HLS → Player')).toBeVisible();\n-    await expect(inspector.locator('table').or(inspector.getByText('Stream details are not available yet.'))).toBeVisible();\n+    // Cells render without whitespace between them, so the row text is one run.\n+    await expect(inspector.locator('tbody tr').first()).toHaveText(/^\\d+p[\\d.]+ [kM]bit\\/s\\d+ × \\d+ s[\\d.]+ [MG]B$/);\n   });\n \n   await settled(page);\ndiff --git a/src/app/main-view/browse/browse.component.spec.ts b/src/app/main-view/browse/browse.component.spec.ts\n@@ -69,7 +69,7 @@ describe('BrowseComponent', () => {\n     expect(fixture.nativeElement.querySelectorAll('.video_list app-video-thumbnail > button').length).toBe(2);\n   });\n \n- it('hero tech line only when enabled', () => {\n+  it('hero tech line only when enabled', () => {\n     const resolutions = ['1080p', '480p'].map((resolution, id) => ({ id, original_video: 1, resolution }));\n     create('member', [{ ...TEST_VIDEO, id: 1, resolutions }]);\n     expect(query('.hero .tech')).toBeNull();\ndiff --git a/src/app/main-view/main-layout/main-layout.component.scss b/src/app/main-view/main-layout/main-layout.component.scss\n@@ -47,7 +47,14 @@\n     --mat-slide-toggle-unselected-hover-handle-color: var(--vf-mute);\n     --mat-slide-toggle-unselected-focus-handle-color: var(--vf-mute);\n     --mat-slide-toggle-unselected-pressed-handle-color: var(--vf-mute);\n-    --mat-slide-toggle-unselected-track-outline-color: var(--vf-mute);\n+    --mat-slide-toggle-track-outline-color: var(--vf-mute);\n+\n+    // Material removes the outline of the switch button; keyboard focus gets a visible ring.\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "bb3e4175612de8d154143bf181aedd83d35ff551",
+    "title": "feat: show real stream statistics in the details view",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T15:40:22+00:00",
+    "files": [
+      "e2e/layout.spec.ts",
+      "src/app/main-view/stream-inspector/stream-inspector.component.html",
+      "src/app/main-view/stream-inspector/stream-inspector.component.scss",
+      "src/app/main-view/stream-inspector/stream-inspector.component.spec.ts",
+      "src/app/main-view/stream-inspector/stream-inspector.component.ts",
+      "src/app/main-view/video-details/video-details.component.html",
+      "src/app/main-view/video-details/video-details.component.spec.ts",
+      "src/app/main-view/video-details/video-details.component.ts",
+      "src/app/models/video-tech.spec.ts",
+      "src/app/models/video-tech.ts",
+      "src/app/models/video.model.ts",
+      "src/app/services/api.service.ts",
+      "src/app/services/video.service.spec.ts",
+      "src/app/services/video.service.ts"
+    ],
+    "patch": "diff --git a/e2e/layout.spec.ts b/e2e/layout.spec.ts\n@@ -89,6 +89,15 @@ async function checkUnderTheHood(page: Page, testInfo: TestInfo): Promise<void>\n     await expect(page.locator('body')).not.toContainText('H.264');\n   });\n \n+  await test.step('default details show no stream inspector', async () => {\n+    const dialog = page.getByRole('dialog');\n+    await page.locator('#newest li button').first().click();\n+    await expect(dialog.getByRole('button', { name: 'Play' })).toBeVisible();\n+    await expect(dialog.locator('app-stream-inspector .inspector')).toHaveCount(0);\n+    await page.keyboard.press('Escape');\n+    await expect(dialog).toBeHidden();\n+  });\n+\n   await test.step('switch shows technical details and survives a reload', async () => {\n     await toggle.click();\n     await expect(toggle).toBeChecked();\n@@ -133,6 +142,12 @@ async function checkDetailsDialog(page: Page, testInfo: TestInfo): Promise<void>\n     await expect(dialog.getByRole('button', { name: 'Play' })).toBeFocused();\n   });\n \n+  await test.step('switch on shows the stream table or its calm fallback', async () => {\n+    const inspector = dialog.locator('app-stream-inspector');\n+    await expect(inspector.getByText('Upload → ffprobe → ffmpeg → HLS → Player')).toBeVisible();\n+    await expect(inspector.locator('table').or(inspector.getByText('Stream details are not available yet.'))).toBeVisible();\n+  });\n+\n   await settled(page);\n   await page.screenshot({\n     path: path.join('e2e-shots', testInfo.project.name, 'details.png'),\ndiff --git a/src/app/main-view/stream-inspector/stream-inspector.component.html b/src/app/main-view/stream-inspector/stream-inspector.component.html\n@@ -0,0 +1,38 @@\n+@if (hood.enabled()) {\n+  <section class=\"inspector\" aria-labelledby=\"inspector-label\">\n+    <h3 id=\"inspector-label\" class=\"label\">Streams</h3>\n+    <div class=\"body\">\n+      @if (failed()) {\n+        <p class=\"note\">Stream details could not be loaded.</p>\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "0b3ae3227b96830cea0bc3855bf2e925744032e0",
+    "title": "feat: add the under the hood switch",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T15:37:23+00:00",
+    "files": [
+      "e2e/layout.spec.ts",
+      "src/app/links.ts",
+      "src/app/main-view/browse/browse.component.html",
+      "src/app/main-view/browse/browse.component.scss",
+      "src/app/main-view/browse/browse.component.spec.ts",
+      "src/app/main-view/browse/browse.component.ts",
+      "src/app/main-view/main-layout/main-layout.component.html",
+      "src/app/main-view/main-layout/main-layout.component.scss",
+      "src/app/main-view/main-layout/main-layout.component.spec.ts",
+      "src/app/main-view/main-layout/main-layout.component.ts",
+      "src/app/main-view/video-thumbnail/video-thumbnail.component.html",
+      "src/app/main-view/video-thumbnail/video-thumbnail.component.scss",
+      "src/app/main-view/video-thumbnail/video-thumbnail.component.spec.ts",
+      "src/app/main-view/video-thumbnail/video-thumbnail.component.ts",
+      "src/app/material/material.module.ts",
+      "src/app/models/video-tech.spec.ts",
+      "src/app/models/video-tech.ts",
+      "src/app/services/build-info.service.spec.ts",
+      "src/app/services/build-info.service.ts",
+      "src/app/services/under-the-hood.service.spec.ts",
+      "src/app/services/under-the-hood.service.ts"
+    ],
+    "patch": "diff --git a/e2e/layout.spec.ts b/e2e/layout.spec.ts\n@@ -70,6 +70,54 @@ async function openForgotPasswordError(page: Page): Promise<void> {\n   await expect(page.getByText('Please enter a valid email')).toBeVisible();\n }\n \n+/**\n+ * Checks the default view for technical detail, then turns \"Under the hood\" on, checks the\n+ * technical layer like a page and reloads to see that the switch is remembered. It reuses the\n+ * demo login of the browse page and leaves the switch on.\n+ */\n+async function checkUnderTheHood(page: Page, testInfo: TestInfo): Promise<void> {\n+  const toggle = page.getByRole('switch', { name: 'Under the hood' });\n+  const heroTech = page.locator('.hero .tech');\n+  const tileTech = page.locator('#newest li .tech');\n+  const attestation = page.getByRole('link', { name: /attested image/ });\n+\n+  await test.step('default view shows no technical details', async () => {\n+    await expect(toggle).not.toBeChecked();\n+    await expect(heroTech).toHaveCount(0);\n+    await expect(tileTech).toHaveCount(0);\n+    await expect(attestation).toHaveCount(0);\n+    await expect(page.locator('body')).not.toContainText('H.264');\n+  });\n+\n+  await test.step('switch shows technical details and survives a reload', async () => {\n+    await toggle.click();\n+    await expect(toggle).toBeChecked();\n+    await expect(heroTech).toHaveText(/^HLS · (\\d+p )*\\d+p · H\\.264 · AAC$/);\n+    await expect(tileTech.first()).toHaveText(/^\\d+ streams?$/);\n+    await expect(attestation).toHaveAttribute('href', 'https://github.com/PhilippKlinger/videoflix-frontend/attestations');\n+    await expect(attestation).toHaveAttribute('target', '_blank');\n+\n+    await page.reload();\n+    await expect(page.getByRole('switch', { name: 'Under the hood' })).toBeChecked();\n+    await expect(heroTech).toBeVisible();\n+  });\n+\n+  await settled(page);\n+  await page.screenshot({\n+    path: path.join('e2e-shots', testInfo.project.name, 'browse-under-the-hood.png'),\n+    fullPage: true,\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "bbc6e22a8833dfc6130b41b15307c51b1c311c81",
+    "title": "fix: align cancel and upload in the upload form",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T15:32:36+00:00",
+    "files": [
+      "src/app/main-view/video-upload/video-upload.component.scss"
+    ],
+    "patch": "diff --git a/src/app/main-view/video-upload/video-upload.component.scss b/src/app/main-view/video-upload/video-upload.component.scss\n@@ -61,6 +61,11 @@\n     min-height: 44px;\n   }\n \n+  // The global submit-button margin would push \"Upload\" below \"Cancel\".\n+  button {\n+    margin-top: 0;\n+  }\n+\n   // Cancel sits on the dark card; the theme's default link blue is hard to read there.\n   a {\n     color: var(--vf-ink);",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "8df3ecaac7ba2d6be81ea1fc9c955a77120f21bc",
+    "title": "fix: rename version fields to the published contract",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T15:32:36+00:00",
+    "files": [
+      "Dockerfile"
+    ],
+    "patch": "diff --git a/Dockerfile b/Dockerfile\n@@ -16,10 +16,10 @@ USER root\n RUN apk upgrade --no-cache\n COPY nginx.conf /etc/nginx/conf.d/default.conf\n COPY --from=build /app/dist/videoflix/browser/ /usr/share/nginx/html/\n-# Public build info: commit and build time only, set by the CI.\n+# Public build info (fields sha and builtAt): commit and build time only, set by the CI.\n ARG GIT_SHA=unknown\n ARG BUILD_TIME=unknown\n-RUN printf '{\"commit\":\"%s\",\"build_time\":\"%s\"}' \"$GIT_SHA\" \"$BUILD_TIME\" > /usr/share/nginx/html/version.json\n+RUN printf '{\"sha\":\"%s\",\"builtAt\":\"%s\"}' \"$GIT_SHA\" \"$BUILD_TIME\" > /usr/share/nginx/html/version.json\n # nginx-unprivileged runs as uid 101 and listens on 8080; stated explicitly so a base-image change cannot fall back to root.\n USER 101\n EXPOSE 8080",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "5ab372f83109241385cfe72c266c44cca2e4a1c5",
+    "title": "test: check the upload form for overflow and axe findings",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T14:02:54+00:00",
+    "files": [
+      "e2e/layout.spec.ts"
+    ],
+    "patch": "diff --git a/e2e/layout.spec.ts b/e2e/layout.spec.ts\n@@ -99,11 +99,41 @@ async function checkDetailsDialog(page: Page, testInfo: TestInfo): Promise<void>\n   });\n }\n \n+/**\n+ * Opens the upload form from the browse page and checks it like a page. It reuses the demo\n+ * login of the browse page and uploads nothing.\n+ */\n+async function checkUploadForm(page: Page, testInfo: TestInfo): Promise<void> {\n+  await test.step('upload tile opens the form', async () => {\n+    await page.getByRole('link', { name: 'Upload video' }).click();\n+    await expect(page).toHaveURL(/\\/upload$/);\n+    await expect(page.getByRole('button', { name: 'Choose video file' })).toBeVisible();\n+  });\n+\n+  await settled(page);\n+  await page.screenshot({\n+    path: path.join('e2e-shots', testInfo.project.name, 'upload.png'),\n+    fullPage: true,\n+    animations: 'disabled',\n+  });\n+  await test.step('upload form: no horizontal overflow', async () => {\n+    const { scrollWidth, clientWidth } = await page.evaluate(() => {\n+      const { scrollWidth, clientWidth } = document.documentElement;\n+      return { scrollWidth, clientWidth };\n+    });\n+    expect.soft(scrollWidth, 'document scrollWidth').toBeLessThanOrEqual(clientWidth);\n+  });\n+  await test.step('upload form: axe finds no serious or critical violations', () => expectNoAxeFindings(page));\n+}\n+\n const PAGES: { name: string; open: (page: Page) => Promise<unknown>; then?: (page: Page, testInfo: TestInfo) => Promise<void> }[] = [\n   { name: 'home', open: page => page.goto('/') },\n   { name: 'login', open: page => page.goto('/login') },\n   { name: 'register', open: page => page.goto('/register') },\n-  { name: 'browse', open: openBrowse, then: checkDetailsDialog },\n+  { name: 'browse', open: openBrowse, then: async (page, testInfo) => {\n+    await checkDetailsDialog(page, testInfo);\n+    await checkUploadForm(page, testInfo);\n+  } },\n   { name: 'not-found', open: openNotFound },\n   { name: 'login-rejected', open: openLoginRejected },\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "7e0de024f2b98979579ad40df87e747517455d40",
+    "title": "fix: align the empty state of my videos with its heading",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T14:02:54+00:00",
+    "files": [
+      "src/app/main-view/my-videos/my-videos.component.scss"
+    ],
+    "patch": "diff --git a/src/app/main-view/my-videos/my-videos.component.scss b/src/app/main-view/my-videos/my-videos.component.scss\n@@ -20,6 +20,13 @@\n   color: #ccc;\n }\n \n+.state-message {\n+  // Sits under the heading like the tiles, not centered like the full-page states.\n+  margin: 0 0 0.8rem;\n+  padding: 0;\n+  text-align: left;\n+}\n+\n .my-videos-error {\n   color: var(--vf-error);\n }",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "294e7825e0973a97fe9ff669bf2429ca10c5291a",
+    "title": "fix: keep the load error after a failed retry",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T13:51:07+00:00",
+    "files": [
+      "src/app/main-view/my-videos/my-videos.component.spec.ts",
+      "src/app/services/video.service.spec.ts",
+      "src/app/services/video.service.ts"
+    ],
+    "patch": "diff --git a/src/app/main-view/my-videos/my-videos.component.spec.ts b/src/app/main-view/my-videos/my-videos.component.spec.ts\n@@ -271,4 +271,4 @@ describe('MyVideosComponent', () => {\n       expect(changed).toBe(1);\n     });\n   });\n-});\n\\ No newline at end of file\n+});\ndiff --git a/src/app/services/video.service.spec.ts b/src/app/services/video.service.spec.ts\n@@ -81,4 +81,22 @@ describe('VideoService', () => {\n     http.expectOne('/api/video/').flush([]);\n     expect(service.loadFailed()).toBeFalse();\n   });\n+\n+  it('keeps the failed mark when a retry fails again', () => {\n+    spyOn(console, 'error');\n+    const http = TestBed.inject(HttpTestingController);\n+    service.loadVideos();\n+    http.expectOne('/api/video/').flush({}, { status: 500, statusText: 'Server Error' });\n+    service.loadVideos();\n+    http.expectOne('/api/video/').flush({}, { status: 500, statusText: 'Server Error' });\n+    expect(service.loadFailed()).toBeTrue();\n+  });\n+\n+  it('clear resets the failed mark', () => {\n+    spyOn(console, 'error');\n+    service.loadVideos();\n+    TestBed.inject(HttpTestingController).expectOne('/api/video/').flush({}, { status: 500, statusText: 'Server Error' });\n+    service.clear();\n+    expect(service.loadFailed()).toBeFalse();\n+  });\n });\ndiff --git a/src/app/services/video.service.ts b/src/app/services/video.service.ts\n@@ -28,14 +28,16 @@ export class VideoService {\n       error: (error) => {\n         console.error('Failed to load videos', error);\n         // A failed reload keeps the list already shown; only the first load ends with an empty one.\n-        this.loadFailed.set(this.videos.value === null);\n+        // Stays set through failed retries until a list has loaded.\n+        this.loadFailed.set(this.loadFailed() || this.videos.value === null);\n         this.videos.next(this.videos.value ?? []);\n       }\n     });\n   }\n \n   /** Forgets the list on an account switch, so no other account's uploads are shown. */\n   clear(): void {\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "d660f7cf924ebad6a2d27278255802e58f295f0d",
+    "title": "feat: show clear upload and conversion states",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T13:47:10+00:00",
+    "files": [
+      "src/app/main-view/browse/browse.component.html",
+      "src/app/main-view/browse/browse.component.scss",
+      "src/app/main-view/browse/browse.component.spec.ts",
+      "src/app/main-view/my-videos/my-videos.component.html",
+      "src/app/main-view/my-videos/my-videos.component.scss",
+      "src/app/main-view/my-videos/my-videos.component.spec.ts",
+      "src/app/main-view/my-videos/my-videos.component.ts",
+      "src/app/main-view/video-upload/video-upload.component.html",
+      "src/app/main-view/video-upload/video-upload.component.scss",
+      "src/app/main-view/video-upload/video-upload.component.spec.ts",
+      "src/app/models/conversion-label.spec.ts",
+      "src/app/models/conversion-label.ts",
+      "src/app/services/video.service.spec.ts",
+      "src/app/services/video.service.ts",
+      "src/styles/material-theme.scss"
+    ],
+    "patch": "diff --git a/src/app/main-view/browse/browse.component.html b/src/app/main-view/browse/browse.component.html\n@@ -25,7 +25,7 @@ <h1>{{ featured.title }}</h1>\n     }\n \n     <!-- Scrollable lists -->\n-    @if (!loading) {\n+    @if (!loading && !videoService.loadFailed()) {\n       <section class=\"list_section\">\n         @if (showMyVideos) {\n           <app-my-videos [videos]=\"ownVideos\" (play)=\"playVideo($event)\" (changed)=\"reload()\"></app-my-videos>\n@@ -61,11 +61,16 @@ <h2>{{ genre }}</h2>\n       </section>\n     }\n \n-    <!-- Fallback -->\n-    @if (!loading && !newestVideos.length) {\n-      <div class=\"no_videos\">\n-        No videos found.\n+    <!-- Loading, error and empty state -->\n+    @if (loading) {\n+      <p class=\"state-message loading\" role=\"status\">Loading videos…</p>\n+    } @else if (videoService.loadFailed()) {\n+      <div class=\"state-message error\" role=\"alert\">\n+        <p>The videos could not be loaded. Please try again.</p>\n+        <button mat-stroked-button type=\"button\" (click)=\"reload()\">Try again</button>\n       </div>\n+    } @else if (!newestVideos.length) {\n+      <p class=\"state-message no_videos\">No videos found.</p>\n     }\n \n   </main>\ndiff --git a/src/app/main-view/browse/browse.component.scss b/src/app/main-view/browse/browse.component.scss\n@@ -137,11 +137,13 @@\n   }\n }\n \n-/* === NO VIDEOS === */\n-.no_videos {\n-  text-align: center;\n-  color: #f44336;\n+/* === LOADING, ERROR, NO VIDEOS === */\n+.state-message {\n   padding: 2rem;\n+\n+  p {\n+    margin: 0 0 1rem;\n+  }\n }\n \n /* === DEMO BANNER === */\ndiff --git a/src/app/main-view/browse/browse.component.spec.ts b/src/app/main-view/browse/browse.component.spec.ts\n@@ -124,6 +124,40 @@ describe('BrowseComponent', () => {\n     expect(query('app-my-videos')).not.toBeNull();\n   });\n \n+  it('shows a loading text until the first answer arrives', () => {\n+    TestBed.configureTestingModule({\n+      imports: [BrowseComponent],\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "3ceab9c77386bff73b4e88969f7399a7d198955f",
+    "title": "feat: add a details view between tile and player",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T13:25:51+00:00",
+    "files": [
+      "src/app/main-view/browse/browse.component.spec.ts",
+      "src/app/main-view/browse/browse.component.ts",
+      "src/app/main-view/video-details/video-details.component.html",
+      "src/app/main-view/video-details/video-details.component.scss",
+      "src/app/main-view/video-details/video-details.component.spec.ts",
+      "src/app/main-view/video-details/video-details.component.ts",
+      "src/app/main-view/video-thumbnail/video-thumbnail.component.spec.ts",
+      "src/app/video-player/video-player.component.html",
+      "src/app/video-player/video-player.component.scss",
+      "src/app/video-player/video-player.component.spec.ts",
+      "src/app/video-player/video-player.component.ts"
+    ],
+    "patch": "diff --git a/src/app/main-view/browse/browse.component.spec.ts b/src/app/main-view/browse/browse.component.spec.ts\n@@ -4,12 +4,16 @@ import { provideRouter } from '@angular/router';\n import { By } from '@angular/platform-browser';\n import { config } from 'rxjs';\n \n+import { MatDialog } from '@angular/material/dialog';\n+import { of } from 'rxjs';\n import { BrowseComponent } from './browse.component';\n import { MyVideosComponent } from '../my-videos/my-videos.component';\n import { TEST_VIDEO } from 'src/app/testing/video.fixture';\n import { provideAppHttpClient } from 'src/app/http.providers';\n import { Role } from 'src/app/models/user.model';\n import { Video } from 'src/app/models/video.model';\n+import { VideoDetailsComponent } from '../video-details/video-details.component';\n+import { VideoPlayerComponent } from 'src/app/video-player/video-player.component';\n \n describe('BrowseComponent', () => {\n   let component: BrowseComponent;\n@@ -156,4 +160,45 @@ describe('BrowseComponent', () => {\n     fixture.detectChanges();\n     expect(component.ownVideos).toEqual([]);\n   });\n+\n+  describe('opening a video', () => {\n+    let open: jasmine.Spy;\n+\n+    function afterClosing(result: string | undefined) {\n+      open = spyOn(component.dialog, 'open').and.returnValue({ afterClosed: () => of(result) } as never);\n+    }\n+\n+    it('opening a tile opens details', () => {\n+      create('member', [{ ...TEST_VIDEO, id: 1 }]);\n+      afterClosing(undefined);\n+      fixture.nativeElement.querySelector('.video_list app-video-thumbnail > button').click();\n+      expect(open).toHaveBeenCalledTimes(1);\n+      expect(open.calls.mostRecent().args[0]).toBe(VideoDetailsComponent);\n+      expect(open.calls.mostRecent().args[1].data).toEqual({ video: component.newestVideos[0] });\n+      expect(open.calls.mostRecent().args[1].restoreFocus).toBeTrue();\n+    });\n+\n+    it('opens the player after \"play\" in the details', () => {\n+      create('member', [{ ...TEST_VIDEO, id: 1 }]);\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "098f8310a41a6497a4cea151dc271ab9092495f8",
+    "title": "test: check details dialog with keyboard, axe and screenshot",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T13:25:51+00:00",
+    "files": [
+      "e2e/layout.spec.ts"
+    ],
+    "patch": "diff --git a/e2e/layout.spec.ts b/e2e/layout.spec.ts\n@@ -1,4 +1,4 @@\n-import { test, expect, Page } from '@playwright/test';\n+import { test, expect, Page, TestInfo } from '@playwright/test';\n import AxeBuilder from '@axe-core/playwright';\n import path from 'node:path';\n \n@@ -70,11 +70,40 @@ async function openForgotPasswordError(page: Page): Promise<void> {\n   await expect(page.getByText('Please enter a valid email')).toBeVisible();\n }\n \n-const PAGES: { name: string; open: (page: Page) => Promise<unknown> }[] = [\n+/**\n+ * Opens the details of the first tile with the real keyboard, checks them like a page,\n+ * and closes them with Escape. It reuses the demo login of the browse page.\n+ */\n+async function checkDetailsDialog(page: Page, testInfo: TestInfo): Promise<void> {\n+  const tile = page.locator('#newest li button').first();\n+  const dialog = page.getByRole('dialog');\n+\n+  await test.step('tile opens details with the keyboard', async () => {\n+    await tile.focus();\n+    await page.keyboard.press('Enter');\n+    await expect(dialog).toBeVisible();\n+    await expect(dialog.getByRole('button', { name: 'Play' })).toBeFocused();\n+  });\n+\n+  await settled(page);\n+  await page.screenshot({\n+    path: path.join('e2e-shots', testInfo.project.name, 'details.png'),\n+    animations: 'disabled',\n+  });\n+  await test.step('axe finds no serious or critical violations with the details open', () => expectNoAxeFindings(page));\n+\n+  await test.step('Escape closes the details and returns focus to the tile', async () => {\n+    await page.keyboard.press('Escape');\n+    await expect(dialog).toBeHidden();\n+    await expect(tile).toBeFocused();\n+  });\n+}\n+\n+const PAGES: { name: string; open: (page: Page) => Promise<unknown>; then?: (page: Page, testInfo: TestInfo) => Promise<void> }[] = [\n   { name: 'home', open: page => page.goto('/') },\n   { name: 'login', open: page => page.goto('/login') },\n   { name: 'register', open: page => page.goto('/register') },\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "c441ba2db771366327ec092c336cb2c9bbaeb78d",
+    "title": "fix: name video tiles by their visible text and strengthen the hero scrim",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T13:14:45+00:00",
+    "files": [
+      "src/app/main-view/browse/browse.component.scss",
+      "src/app/main-view/video-thumbnail/video-thumbnail.component.html",
+      "src/app/main-view/video-thumbnail/video-thumbnail.component.spec.ts"
+    ],
+    "patch": "diff --git a/src/app/main-view/browse/browse.component.scss b/src/app/main-view/browse/browse.component.scss\n@@ -28,13 +28,14 @@\n     z-index: 1;\n   }\n \n-  // The image fades into the page below it; the left side darkens for the text.\n+  // The image fades into the page below it. The text sits on the dark lower part, so it\n+  // stays readable on any clip; the page colour is fully opaque at the bottom edge.\n   &-overlay {\n     position: absolute;\n     inset: 0;\n     background:\n-      linear-gradient(to top, var(--vf-bg) 2%, rgba(11, 11, 15, 0.15) 60%, rgba(11, 11, 15, 0.45)),\n-      linear-gradient(to right, rgba(11, 11, 15, 0.8), transparent 60%);\n+      linear-gradient(to top, var(--vf-bg) 4%, rgba(11, 11, 15, 0.88) 38%, rgba(11, 11, 15, 0.4) 70%, rgba(11, 11, 15, 0.45)),\n+      linear-gradient(to right, rgba(11, 11, 15, 0.8), transparent 65%);\n     z-index: 2;\n     pointer-events: none;\n   }\ndiff --git a/src/app/main-view/video-thumbnail/video-thumbnail.component.html b/src/app/main-view/video-thumbnail/video-thumbnail.component.html\n@@ -1,4 +1,4 @@\n-<button type=\"button\" class=\"tile\" [attr.aria-label]=\"video.title\" (click)=\"open.emit(video)\">\n+<button type=\"button\" class=\"tile\" (click)=\"open.emit(video)\">\n   <span class=\"media\">\n     @if (video.thumbnail_url) {\n       <img [src]=\"video.thumbnail_url\" alt=\"\" loading=\"lazy\" decoding=\"async\" width=\"267\" height=\"150\" />\ndiff --git a/src/app/main-view/video-thumbnail/video-thumbnail.component.spec.ts b/src/app/main-view/video-thumbnail/video-thumbnail.component.spec.ts\n@@ -22,7 +22,10 @@ describe('VideoThumbnailComponent', () => {\n     create({ title: 'Mountain run' });\n     expect(root().tagName).toBe('BUTTON');\n     expect(root().getAttribute('type')).toBe('button');\n-    expect(root().getAttribute('aria-label')).toBe('Mountain run');\n+    // No aria-label: the visible text names the button, and the image adds nothing.\n+    expect(root().hasAttribute('aria-label')).toBeFalse();\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "c9589159b039120c9e9b0f2c0c3f7ceb6990439f",
+    "title": "feat: make video tiles keyboard accessible and fade only real overflow",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T13:06:10+00:00",
+    "files": [
+      "e2e/layout.spec.ts",
+      "src/app/main-view/browse/browse.component.html",
+      "src/app/main-view/browse/browse.component.scss",
+      "src/app/main-view/browse/browse.component.spec.ts",
+      "src/app/main-view/browse/browse.component.ts",
+      "src/app/main-view/browse/scroll-fade.directive.spec.ts",
+      "src/app/main-view/browse/scroll-fade.directive.ts",
+      "src/app/main-view/video-thumbnail/video-thumbnail.component.html",
+      "src/app/main-view/video-thumbnail/video-thumbnail.component.scss",
+      "src/app/main-view/video-thumbnail/video-thumbnail.component.spec.ts",
+      "src/app/main-view/video-thumbnail/video-thumbnail.component.ts",
+      "src/app/models/video.model.ts"
+    ],
+    "patch": "diff --git a/e2e/layout.spec.ts b/e2e/layout.spec.ts\n@@ -70,11 +70,11 @@ async function openForgotPasswordError(page: Page): Promise<void> {\n   await expect(page.getByText('Please enter a valid email')).toBeVisible();\n }\n \n-const PAGES: { name: string; open: (page: Page) => Promise<unknown>; axe?: false }[] = [\n+const PAGES: { name: string; open: (page: Page) => Promise<unknown> }[] = [\n   { name: 'home', open: page => page.goto('/') },\n   { name: 'login', open: page => page.goto('/login') },\n   { name: 'register', open: page => page.goto('/register') },\n-  { name: 'browse', open: openBrowse, axe: false },\n+  { name: 'browse', open: openBrowse },\n   { name: 'not-found', open: openNotFound },\n   { name: 'login-rejected', open: openLoginRejected },\n   { name: 'register-errors', open: openRegisterErrors },\n@@ -120,7 +120,7 @@ test.describe('layout', () => {\n \n   // One test per page, because a failed test restarts the worker and a repeated\n   // setup would spend another rejected login or demo account. Soft: both checks always report.\n-  for (const { name, open, axe } of PAGES) {\n+  for (const { name, open } of PAGES) {\n     test(name, async ({ page }, testInfo) => {\n       await open(page);\n       await settled(page);\n@@ -138,20 +138,10 @@ test.describe('layout', () => {\n         expect.soft(scrollWidth, 'document scrollWidth').toBeLessThanOrEqual(clientWidth);\n       });\n \n-      if (axe !== false) {\n-        await test.step('axe finds no serious or critical violations', () => expectNoAxeFindings(page));\n-      }\n+      await test.step('axe finds no serious or critical violations', () => expectNoAxeFindings(page));\n     });\n   }\n \n-  // scrollable-region-focusable on the tile lists: <img (click)> tiles hold nothing focusable.\n-  // Fixed by the tile rebuild, which drops this test and the axe flag of the browse page.\n-  test.fixme('browse: axe finds no serious or critical violations', async ({ page }) => {\n-    await openBrowse(page);\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "87e03dd3b2ba1b17efbb604a8e4a5624b9eb6e69",
+    "title": "fix: keep Sign up next to Try demo on the landing page",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T13:06:10+00:00",
+    "files": [
+      "src/app/authentication/demo-button/demo-button.component.scss",
+      "src/app/authentication/home/home.component.scss"
+    ],
+    "patch": "diff --git a/src/app/authentication/demo-button/demo-button.component.scss b/src/app/authentication/demo-button/demo-button.component.scss\n@@ -20,6 +20,8 @@\n }\n \n .demo-hint {\n+  // A host can cap the width, so a long hint does not widen the column.\n+  max-width: var(--demo-hint-max-width, none);\n   color: var(--vf-mute);\n   font-size: 12px;\n }\ndiff --git a/src/app/authentication/home/home.component.scss b/src/app/authentication/home/home.component.scss\n@@ -64,6 +64,8 @@\n   .actions {\n     --demo-align: flex-start;\n     --demo-text-align: left;\n+    // The hint wraps instead of pushing \"Sign up\" away from the button.\n+    --demo-hint-max-width: 24ch;\n     display: flex;\n     flex-wrap: wrap;\n     align-items: flex-start;",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "e89d18b5e0ffddbeafa9b67a252d6c766530c756",
+    "title": "test: cover three viewports, axe and form states",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-06T19:57:52+00:00",
+    "files": [
+      ".github/workflows/ci.yml",
+      ".gitignore",
+      "e2e/layout.spec.ts",
+      "package-lock.json",
+      "package.json",
+      "playwright.config.ts"
+    ],
+    "patch": "diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\n@@ -93,6 +93,15 @@ jobs:\n           docker compose --profile dev up -d --build\n           timeout 180 bash -c 'until curl -fsS http://localhost:8000/api/health/; do sleep 3; done'\n \n+      # A demo account only sees the standard catalog, which starts empty. The worker converts in the background.\n+      - name: Seed the standard catalog\n+        working-directory: backend-stack\n+        run: |\n+          set -Eeuo pipefail\n+          docker compose --profile dev exec -T web mkdir -p /tmp/catalog\n+          docker compose --profile dev cp ../e2e/fixtures/test-clip.mp4 web:/tmp/catalog/test-clip.mp4\n+          docker compose --profile dev exec -T web python manage.py import_catalog /tmp/catalog\n+\n       - name: Start frontend\n         run: |\n           set -Eeuo pipefail\n@@ -118,6 +127,15 @@ jobs:\n           path: playwright-report/\n           retention-days: 7\n \n+      # Also after failing tests: a screenshot is how layout faults get noticed.\n+      - name: Upload screenshots\n+        if: always()\n+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n+        with:\n+          name: e2e-shots\n+          path: e2e-shots/\n+          retention-days: 7\n+\n   image:\n     name: Build, scan and publish image\n     runs-on: ubuntu-latest\ndiff --git a/.gitignore b/.gitignore\n@@ -49,3 +49,4 @@ Thumbs.db\n # Playwright\n /test-results\n /playwright-report\n+e2e-shots/\ndiff --git a/e2e/layout.spec.ts b/e2e/layout.spec.ts\n@@ -0,0 +1,164 @@\n+import { test, expect, Page } from '@playwright/test';\n+import AxeBuilder from '@axe-core/playwright';\n+import path from 'node:path';\n+\n+interface ApiVideo {\n+  is_own: boolean;\n+  thumbnail_url: string | null;\n+}\n+\n+/** Waits for network, images, web fonts and finite CSS animations, so boxes and screenshots are stable. */\n+async function settled(page: Page): Promise<void> {\n+  await page.waitForLoadState('networkidle');\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "26a1f7fddc63d23558c7dbd6e1793d116afb1cd6",
+    "title": "fix: name the password toggles and use a valid email autocomplete",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-06T19:57:52+00:00",
+    "files": [
+      "src/app/authentication/forgot-password/forgot-password.component.html",
+      "src/app/authentication/login/login.component.html",
+      "src/app/authentication/register/register.component.html",
+      "src/app/authentication/reset-password/reset-password.component.html"
+    ],
+    "patch": "diff --git a/src/app/authentication/forgot-password/forgot-password.component.html b/src/app/authentication/forgot-password/forgot-password.component.html\n@@ -6,7 +6,7 @@ <h1>Forgot your<br>password?</h1>\n         <p class=\"subtitle\">We will send you an email with instructions to reset your password.</p>\n         <mat-form-field appearance=\"outline\" class=\"full-width\">\n           <mat-label>Email Address</mat-label>\n-          <input matInput formControlName=\"email\" autocomplete=\"username email\">\n+          <input matInput formControlName=\"email\" autocomplete=\"email\">\n           <mat-icon matPrefix>mail</mat-icon>\n           @if (forgotForm.get('email')?.hasError('required') && forgotForm.get('email')?.touched) {\n             <mat-error>\ndiff --git a/src/app/authentication/login/login.component.html b/src/app/authentication/login/login.component.html\n@@ -17,7 +17,8 @@ <h1>Log in</h1>\n           <mat-label>Password</mat-label>\n           <input matInput [type]=\"showPassword ? 'text' : 'password'\" formControlName=\"password\" autocomplete=\"current-password\">\n           <mat-icon matPrefix>lock</mat-icon>\n-          <button mat-icon-button matSuffix type=\"button\" (click)=\"togglePasswordVisibility()\">\n+          <button mat-icon-button matSuffix type=\"button\" (click)=\"togglePasswordVisibility()\"\n+            [attr.aria-label]=\"showPassword ? 'Hide password' : 'Show password'\">\n             <mat-icon>{{ showPassword ? 'visibility_off' : 'visibility' }}</mat-icon>\n           </button>\n         </mat-form-field>\ndiff --git a/src/app/authentication/register/register.component.html b/src/app/authentication/register/register.component.html\n@@ -29,7 +29,8 @@ <h1>Sign up</h1>\n             <mat-label>Password</mat-label>\n             <input matInput [type]=\"showPassword ? 'text' : 'password'\" formControlName=\"password\">\n             <mat-icon matPrefix>lock</mat-icon>\n-            <button mat-icon-button matSuffix type=\"button\" (click)=\"togglePasswordVisibility()\">\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "7096a366c38d179afafddc7d625016a425c6196e",
+    "title": "feat: use a calm cover image on the landing page",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-06T19:55:27+00:00",
+    "files": [
+      "src/app/authentication/auth-layout/auth-layout.component.html",
+      "src/app/authentication/auth-layout/auth-layout.component.scss",
+      "src/app/authentication/home/home.component.html",
+      "src/app/authentication/home/home.component.scss",
+      "src/app/authentication/home/home.component.spec.ts",
+      "src/app/authentication/home/home.component.ts",
+      "src/assets/backgrounds/cover.webp"
+    ],
+    "patch": "diff --git a/src/app/authentication/auth-layout/auth-layout.component.html b/src/app/authentication/auth-layout/auth-layout.component.html\n@@ -19,10 +19,10 @@\n   </main>\n \n   <footer class=\"auth-footer\">\n-    <a routerLink=\"/datenschutz\">Datenschutz</a> |\n+    <a routerLink=\"/datenschutz\">Datenschutz</a>\n     <a routerLink=\"/impressum\">Impressum</a>\n     @if (showBuildLink) {\n-      | <a class=\"build-link\" [href]=\"buildStoryUrl\" target=\"_blank\" rel=\"noopener\">How this was built</a>\n+      <a class=\"build-link\" [href]=\"buildStoryUrl\" target=\"_blank\" rel=\"noopener\">How this was built</a>\n     }\n   </footer>\n </div>\n\\ No newline at end of file\ndiff --git a/src/app/authentication/auth-layout/auth-layout.component.scss b/src/app/authentication/auth-layout/auth-layout.component.scss\n@@ -105,11 +105,24 @@\n   flex-wrap: wrap;\n   flex-direction: row;\n   justify-content: center;\n-  gap: 40px;\n+  gap: 8px 24px;\n   padding-bottom: 28px;\n   padding-top: 18px;\n \n+  // Separators are drawn only where all links fit in one row, so none can end up alone on a wrapped line.\n+  @media (min-width: 560px) {\n+    column-gap: 84px;\n+\n+    a + a::before {\n+      content: \"|\" / \"\";\n+      position: absolute;\n+      left: -42px;\n+      transform: translateX(-50%);\n+    }\n+  }\n+\n   a {\n+    position: relative;\n     color: #fff;\n     font-size: 0.98rem;\n     text-decoration: none;\ndiff --git a/src/app/authentication/home/home.component.html b/src/app/authentication/home/home.component.html\n@@ -1,6 +1,6 @@\n <app-auth-layout [backgroundImage]=\"''\" [showBuildLink]=\"true\">\n   <div layoutBackground class=\"cover\">\n-    <img [src]=\"coverImage\" alt=\"\" width=\"1920\" height=\"1516\" fetchpriority=\"high\" />\n+    <img [src]=\"coverImage\" alt=\"\" width=\"1280\" height=\"720\" fetchpriority=\"high\" />\n     <div class=\"veil\"></div>\n   </div>\n \ndiff --git a/src/app/authentication/home/home.component.scss b/src/app/authentication/home/home.component.scss\n@@ -8,20 +8,24 @@\n     width: 100%;\n     height: 100%;\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "dd15ac056e9e7c9a73a686320e0598dfe25e26a8",
+    "title": "fix: let the password hint push the next field down",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-06T19:10:07+00:00",
+    "files": [
+      "src/app/authentication/register/register.component.html",
+      "src/app/authentication/register/register.component.spec.ts",
+      "src/app/authentication/reset-password/reset-password.component.html",
+      "src/app/authentication/reset-password/reset-password.component.spec.ts",
+      "src/styles/material-theme.scss"
+    ],
+    "patch": "diff --git a/src/app/authentication/register/register.component.html b/src/app/authentication/register/register.component.html\n@@ -25,7 +25,7 @@ <h1>Sign up</h1>\n               </mat-error>\n             }\n           </mat-form-field>\n-          <mat-form-field appearance=\"outline\" class=\"full-width\">\n+          <mat-form-field appearance=\"outline\" class=\"full-width\" subscriptSizing=\"dynamic\">\n             <mat-label>Password</mat-label>\n             <input matInput [type]=\"showPassword ? 'text' : 'password'\" formControlName=\"password\">\n             <mat-icon matPrefix>lock</mat-icon>\ndiff --git a/src/app/authentication/register/register.component.spec.ts b/src/app/authentication/register/register.component.spec.ts\n@@ -28,6 +28,11 @@ describe('RegisterComponent', () => {\n     expect(component).toBeTruthy();\n   });\n \n+  it('password field grows with its hint', () => {\n+    const field: HTMLElement = fixture.nativeElement.querySelector('input[formControlName=\"password\"]').closest('mat-form-field');\n+    expect(field.querySelector('.mat-mdc-form-field-subscript-wrapper')!.classList).toContain('mat-mdc-form-field-subscript-dynamic-size');\n+  });\n+\n   it('sends email, password and confirmed_password', () => {\n     const registerSpy = spyOn(TestBed.inject(ApiService), 'registerUser').and.returnValue(of({}));\n     component.registerForm.patchValue({ username: 'a@b.de', password: 'secret12', password_confirm: 'secret12' });\ndiff --git a/src/app/authentication/reset-password/reset-password.component.html b/src/app/authentication/reset-password/reset-password.component.html\n@@ -7,7 +7,7 @@ <h1>Reset password</h1>\n           <div class=\"subtitle\">\n             Create a new password for your <span class=\"videoflix-link\">Videoflix</span> account.\n           </div>\n-          <mat-form-field appearance=\"outline\" class=\"full-width\">\n+          <mat-form-field appearance=\"outline\" class=\"full-width\" subscriptSizing=\"dynamic\">\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "e9d8e00c292a58ccaea5341bf0403f1ca65ca44d",
+    "title": "feat: rebuild the landing page around the demo",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-06T19:00:35+00:00",
+    "files": [
+      "e2e/landing.spec.ts",
+      "src/app/authentication/auth-layout/auth-layout.component.html",
+      "src/app/authentication/auth-layout/auth-layout.component.scss",
+      "src/app/authentication/auth-layout/auth-layout.component.spec.ts",
+      "src/app/authentication/auth-layout/auth-layout.component.ts",
+      "src/app/authentication/demo-button/demo-button.component.html",
+      "src/app/authentication/demo-button/demo-button.component.scss",
+      "src/app/authentication/home/home.component.html",
+      "src/app/authentication/home/home.component.scss",
+      "src/app/authentication/home/home.component.spec.ts",
+      "src/app/authentication/home/home.component.ts",
+      "src/app/authentication/login/login.component.ts",
+      "src/app/authentication/register/register.component.ts",
+      "src/app/links.ts"
+    ],
+    "patch": "diff --git a/e2e/landing.spec.ts b/e2e/landing.spec.ts\n@@ -0,0 +1,48 @@\n+import { test, expect } from '@playwright/test';\n+import { BUILD_STORY_URL } from '../src/app/links';\n+\n+test.describe('landing page', () => {\n+  test('puts Try demo before Sign up in the tab order', async ({ page }) => {\n+    await page.goto('/');\n+    const demo = page.getByRole('button', { name: 'Try demo' });\n+    await expect(demo).toBeVisible();\n+\n+    await demo.focus();\n+    await page.keyboard.press('Tab');\n+    await expect(page.getByRole('link', { name: 'Sign up' })).toBeFocused();\n+  });\n+\n+  test('leads to register and login', async ({ page }) => {\n+    await page.goto('/');\n+    await page.getByRole('link', { name: 'Sign up' }).click();\n+    await expect(page).toHaveURL(/\\/register$/);\n+\n+    await page.goto('/');\n+    await page.getByRole('link', { name: 'Log in' }).click();\n+    await expect(page).toHaveURL(/\\/login$/);\n+  });\n+\n+  test('links to the build story in a new tab', async ({ page }) => {\n+    await page.goto('/');\n+    const link = page.getByRole('link', { name: 'How this was built' });\n+    await expect(link).toHaveAttribute('href', BUILD_STORY_URL);\n+    await expect(link).toHaveAttribute('rel', 'noopener');\n+  });\n+\n+  test('public start page requests no video data', async ({ page }) => {\n+    const videoRequests: string[] = [];\n+    page.on('request', r => {\n+      if (r.url().includes('/api/video') || r.url().includes('thumbnail')) videoRequests.push(r.url());\n+    });\n+    await page.goto('/');\n+    await page.waitForLoadState('networkidle');\n+    expect(videoRequests).toEqual([]);\n+  });\n+\n+  test('does not overflow horizontally on a phone', async ({ page }) => {\n+    await page.setViewportSize({ width: 390, height: 844 });\n+    await page.goto('/');\n+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);\n+    expect(overflow).toBe(false);\n+  });\n+});\n… truncated",
+    "body": ""
+  }
+]

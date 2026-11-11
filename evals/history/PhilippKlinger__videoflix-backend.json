@@ -1,0 +1,346 @@
+[
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "24f9d79dcf4bbeeae7c77d5d4eb56bb0aebf6cd0",
+    "title": "fix: ignore email values that are not text in the account lookup",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-08T12:47:04+00:00",
+    "files": [
+      "accounts_app/models.py"
+    ],
+    "patch": "diff --git a/accounts_app/models.py b/accounts_app/models.py\n@@ -58,6 +58,9 @@ def find_by_email(self, email, **filters):\n         Older rows can differ only by case: the exact spelling wins, then the oldest row.\n         Used for the login, a new activation link and the password reset.\n         \"\"\"\n+        # A JSON list or number would reach the database as is; Postgres has no UPPER() for it.\n+        if not isinstance(email, str) or not email:\n+            return None\n         # Rollback leftover: rows of the old soft delete stay dead (see CustomUser.is_soft_deleted).\n         matches = self.filter(email__iexact=email, is_soft_deleted=False, **filters)\n         return matches.filter(email=email).first() or matches.order_by(\"pk\").first()",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "4816c3d4b3c99cf52b829afb30e9ad33a23cba8b",
+    "title": "docs: correct the prod env template line in the readme",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-08T12:26:24+00:00",
+    "files": [
+      "README.md"
+    ],
+    "patch": "diff --git a/README.md b/README.md\n@@ -53,7 +53,7 @@ cd videoflix-backend\n \n # 2. Make a copy of the .env.template\n cp .env.dev.template .env -> local development\n-cp .env.prod.template .env -> production server\n+cp .env.prod.template .env -> local check of the production image\n \n # 3. Enter your secrets, db settings etc. Be sure to set the right port for CORS.\n http://127.0.0.1:5500/ -> Live Server",
+    "body": "The prod template is used for a local check of the production image; production runs via the videoflix-deploy repository."
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "b601de4728481e03290781f8eba692f02deea5bd",
+    "title": "test: make the old token check prove the account is gone",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-08T12:26:15+00:00",
+    "files": [
+      "accounts_app/tests.py"
+    ],
+    "patch": "diff --git a/accounts_app/tests.py b/accounts_app/tests.py\n@@ -436,6 +436,8 @@ def test_auth_cookies_are_cleared(self):\n \n     def test_old_tokens_stop_working(self):\n         self._delete()\n+        # The old soft delete also answered 401 here (inactive account), so the row must be gone.\n+        self.assertFalse(CustomUser.objects.filter(pk=self.user.pk).exists())\n         client = APIClient()\n         client.cookies[\"refresh_token\"] = self.old_refresh\n         self.assertEqual(client.post(\"/api/token/refresh/\").status_code, 401)",
+    "body": "The old soft delete also answered 401, because the account was inactive. The test now checks that the row is gone, so it fails against a soft delete."
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "13c3c635874c68c8e62e94948c5e66e0711088ce",
+    "title": "fix: answer 429 on the admin login when the wait time is unknown",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-08T12:25:49+00:00",
+    "files": [
+      "accounts_app/tests.py",
+      "core/admin_login.py"
+    ],
+    "patch": "diff --git a/accounts_app/tests.py b/accounts_app/tests.py\n@@ -2,6 +2,7 @@\n import os\n import shutil\n import tempfile\n+import time\n from datetime import timedelta\n from io import StringIO\n from unittest.mock import patch\n@@ -20,6 +21,7 @@\n from django.test import TestCase\n from accounts_app.api.tasks import deliver_activation_email, deliver_password_reset_email\n from accounts_app.api.utils import is_admin\n+from core.admin_login import AdminLoginThrottle\n from video_app.models import Video, VideoProgress, VideoResolution\n \n \n@@ -1075,6 +1077,15 @@ def test_over_the_limit_no_password_is_checked(self):\n             self.assertEqual(self._login().status_code, 429)\n             self.assertEqual(authenticate.call_count, 5)\n \n+    def test_more_history_than_the_rate_still_answers_429(self):\n+        # Right after lowering THROTTLE_RATE_LOGIN the counter can hold more entries than allowed;\n+        # then the throttle knows no wait time and returns None.\n+        key = AdminLoginThrottle.cache_format % {\"scope\": \"login\", \"ident\": \"127.0.0.1\"}\n+        cache.set(key, [time.time()] * 10, 60)\n+        response = self._login()\n+        self.assertEqual(response.status_code, 429)\n+        self.assertFalse(response.has_header(\"Retry-After\"))\n+\n     def test_get_stays_free(self):\n         for _ in range(6):\n             self._login()\ndiff --git a/core/admin_login.py b/core/admin_login.py\n@@ -28,10 +28,14 @@ def throttled_admin_login(request, extra_context=None):\n     if request.method == \"POST\":\n         throttle = AdminLoginThrottle()\n         if not throttle.allow_request(request, None):\n-            return HttpResponse(\n+            response = HttpResponse(\n                 \"Too many login attempts. Please try again later.\",\n                 status=429,\n                 content_type=\"text/plain\",\n-                headers={\"Retry-After\": str(ceil(throttle.wait()))},\n             )\n… truncated",
+    "body": "The throttle returns no wait time when the counter holds more entries than the rate allows, and ceil(None) turned the 429 into a 500. Retry-After is now only sent when a wait time is known."
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "00c3d5238130e51a6c03cf6ccbc73f3410400431",
+    "title": "fix: keep rows of the old soft delete locked out",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-08T12:25:16+00:00",
+    "files": [
+      "accounts_app/api/authentication.py",
+      "accounts_app/api/views.py",
+      "accounts_app/models.py",
+      "accounts_app/tests.py"
+    ],
+    "patch": "diff --git a/accounts_app/api/authentication.py b/accounts_app/api/authentication.py\n@@ -30,6 +30,9 @@ def get_user(self, validated_token):\n         Reject demo accounts after their lifetime, even before the cleanup ran (VFX-28).\n         \"\"\"\n         user = super().get_user(validated_token)\n+        # Rollback leftover: rows of the old soft delete stay dead (see CustomUser.is_soft_deleted).\n+        if user.is_soft_deleted:\n+            raise exceptions.AuthenticationFailed(\"User not found\", code=\"user_not_found\")\n         if user.is_expired_demo:\n             raise exceptions.AuthenticationFailed(\"Demo has expired.\", code=\"demo_expired\")\n         return user\ndiff --git a/accounts_app/api/views.py b/accounts_app/api/views.py\n@@ -65,8 +65,9 @@ class ActivateAccountView(views.APIView):\n     def get(self, request, uid, token):\n         try:\n             uid_decoded = base64.urlsafe_b64decode(uid.encode()).decode()\n+            # Rollback leftover: rows of the old soft delete stay dead (see CustomUser.is_soft_deleted).\n             user = CustomUser.objects.get(\n-                pk=uid_decoded, activation_code=token, is_active=False\n+                pk=uid_decoded, activation_code=token, is_active=False, is_soft_deleted=False\n             )\n             if (\n                 not user.activation_code_expiry\n@@ -185,7 +186,10 @@ def post(self, request, *args, **kwargs):\n         try:\n             refresh = RefreshToken(refresh_token)\n             # The token stays valid after deactivation, so the account is checked here (VFX-53).\n-            if not CustomUser.objects.filter(pk=refresh[\"user_id\"], is_active=True).exists():\n+            # Rollback leftover: rows of the old soft delete stay dead (see CustomUser.is_soft_deleted).\n+            if not CustomUser.objects.filter(\n+                pk=refresh[\"user_id\"], is_active=True, is_soft_deleted=False\n+            ).exists():\n                 return Response(\n… truncated",
+    "body": "is_soft_deleted stays for a rollback, but no code read it any more, so such rows could be activated or logged into again. Login (both backends, API and admin), activation, a new link, the password reset, the refresh and the access token check now skip them."
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "26d47e38edbc61933f5f0b679b295e2ed7ef60c5",
+    "title": "fix: check the upload resolution as a 4k box in either orientation",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-08T12:23:39+00:00",
+    "files": [
+      "video_app/api/serializers.py",
+      "video_app/api/utils.py",
+      "video_app/tests.py"
+    ],
+    "patch": "diff --git a/video_app/api/serializers.py b/video_app/api/serializers.py\n@@ -10,7 +10,8 @@\n     MAX_UPLOAD_SIZE,\n     MAX_VIDEO_DURATION_SECONDS,\n     MAX_VIDEO_FPS,\n-    MAX_VIDEO_PIXELS,\n+    MAX_VIDEO_LONG_SIDE,\n+    MAX_VIDEO_SHORT_SIDE,\n     parse_frame_rate,\n     probe_video,\n )\n@@ -116,13 +117,16 @@ def _validate_video_content(self, value):\n \n     def _validate_video_stream(self, stream):\n         \"\"\"\n-        Reject frames over the pixel limit and rates over the fps limit. Over -max_pixels ffprobe\n-        can exit 0 and report 0x0, so a missing size counts as too large. An unknown rate passes:\n-        headers can lie anyway, so -fpsmax and the conversion timeout limit the worker.\n+        Reject frames larger than 3840x2160 in either orientation and rates over the fps limit.\n+        Over -max_pixels ffprobe can exit 0 and report 0x0, so a missing size counts as too large.\n+        An unknown rate passes: headers can lie anyway, so -fpsmax and the conversion timeout\n+        limit the worker.\n         \"\"\"\n-        pixels = stream.get(\"width\", 0) * stream.get(\"height\", 0)\n-        if not 0 < pixels <= MAX_VIDEO_PIXELS:\n-            raise serializers.ValidationError(\"The video resolution must not be higher than 3840x2160.\")\n+        sides = sorted([stream.get(\"width\", 0), stream.get(\"height\", 0)])\n+        if not (0 < sides[0] <= MAX_VIDEO_SHORT_SIDE and sides[1] <= MAX_VIDEO_LONG_SIDE):\n+            raise serializers.ValidationError(\n+                \"The video resolution must not be larger than 3840x2160 (or 2160x3840 in portrait).\"\n+            )\n         if parse_frame_rate(stream.get(\"avg_frame_rate\")) > MAX_VIDEO_FPS:\n             raise serializers.ValidationError(\"The video must not have more than 120 frames per second.\")\n \ndiff --git a/video_app/api/utils.py b/video_app/api/utils.py\n@@ -16,15 +16,19 @@\n MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB\n MAX_VIDEO_DURATION_SECONDS = 120\n MAX_UPLOADS_PER_ACCOUNT = 2\n… truncated",
+    "body": "The product check let 3600x2300 through and the decoder limit rejected 2160x3840, because decoders round the width up to 64. Uploads now fit 3840x2160 in landscape or portrait, and -max_pixels allows 2176x3840."
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "5dbf40d227e49734bb1a7d1268c3df38ac70817a",
+    "title": "fix: delete the account only on the json boolean confirm",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-08T12:09:19+00:00",
+    "files": [
+      "accounts_app/api/views.py",
+      "accounts_app/tests.py"
+    ],
+    "patch": "diff --git a/accounts_app/api/views.py b/accounts_app/api/views.py\n@@ -307,14 +307,15 @@ def post(self, request, uid, token):\n class DeleteAccountView(views.APIView):\n     \"\"\"\n     Immediately and permanently delete the authenticated user's account with all uploads and\n-    their files. This cannot be undone. Requires \"confirm\": true and clears the auth cookies.\n+    their files. This cannot be undone. Requires a JSON body with the boolean \"confirm\": true\n+    (a string such as \"true\" or a form value does not count) and clears the auth cookies.\n     \"\"\"\n \n     permission_classes = [IsAuthenticated]\n \n     def delete(self, request):\n-        confirm = request.data.get(\"confirm\", False)\n-        if not confirm:\n+        # Only the JSON boolean counts; a text like \"false\" is truthy and would delete for good.\n+        if request.data.get(\"confirm\") is not True:\n             return Response(\n                 {\"detail\": \"Please confirm account deletion.\"},\n                 status=status.HTTP_400_BAD_REQUEST,\ndiff --git a/accounts_app/tests.py b/accounts_app/tests.py\n@@ -472,8 +472,24 @@ def test_address_is_free_again(self):\n     def test_without_confirmation_nothing_happens(self):\n         response = self.client.delete(self.url, {}, format=\"json\")\n         self.assertEqual(response.status_code, 400)\n+        self.assertEqual(response.data[\"detail\"], \"Please confirm account deletion.\")\n         self.assertTrue(CustomUser.objects.filter(pk=self.user.pk).exists())\n \n+    def test_only_the_json_boolean_true_confirms(self):\n+        for value in [\"false\", \"true\", \"no\", 1, 0, None, []]:\n+            with self.subTest(json=value):\n+                response = self.client.delete(self.url, {\"confirm\": value}, format=\"json\")\n+                self.assertEqual(response.status_code, 400)\n+                self.assertEqual(response.data[\"detail\"], \"Please confirm account deletion.\")\n+                self.assertTrue(CustomUser.objects.filter(pk=self.user.pk).exists())\n… truncated",
+    "body": "A text such as \"false\" or a form value was truthy and deleted the account for good. Only \"confirm\": true now counts, everything else answers 400 and keeps the account."
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "4d1378ab05e0f32af30ad06203a4eb4bba12a03e",
+    "title": "docs: correct false statements in the readme",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T20:19:12+00:00",
+    "files": [
+      "README.md"
+    ],
+    "patch": "diff --git a/README.md b/README.md\n@@ -1,7 +1,7 @@\n # Videoflix Backend\n \n This is the backend REST API for **Videoflix**, a video streaming platform inspired by Netflix, built with Django, Django REST Framework, and Docker.  \n-Videoflix allows users to register, upload videos, stream in multiple resolutions (HLS), track watch progress, and manage their accounts securely.\n+Videoflix allows users to register, upload videos, stream in multiple resolutions (HLS), and manage their accounts securely.\n \n ---\n \n@@ -13,7 +13,6 @@ Videoflix allows users to register, upload videos, stream in multiple resolution\n - **Video Management**\n   - Authenticated video upload with automatic processing (thumbnail + HLS transcoding)\n   - Video streaming in multiple resolutions (HLS)\n-  - Video progress tracking per user\n - **Admin Features**\n   - Permanent account deletion\n   - Admin interface with import/export for data\n@@ -50,7 +49,7 @@ Videoflix allows users to register, upload videos, stream in multiple resolution\n ```bash\n # 1. Clone the repository  \n git clone git@github.com:PhilippKlinger/videoflix-backend.git \n-cd videoflix_backend  \n+cd videoflix-backend  \n \n # 2. Make a copy of the .env.template\n cp .env.dev.template .env -> local development\n@@ -62,7 +61,7 @@ http://127.0.0.1:4200/ -> Angular\n \n # 4. Build and start all services (backend, Postgres, Redis)  \n docker compose --profile dev up -d --build -> local development\n-docker compose --profile prod up -d --build -> production server\n+docker compose --profile prod up -d --build -> local check of the production image (production runs via the videoflix-deploy repository)\n \n 🟢 The backend, database, Redis, and worker will be set up automatically.  \n 🟢 Migrations run when `web` starts; static files are built into the image.  \n@@ -109,7 +108,7 @@ You can:\n \n - See all endpoints, parameters, models, responses, and error codes.\n - Try out requests (register, login, upload videos) directly in the browser.\n… truncated",
+    "body": "Watch progress has no write path, the Authorize button offers only Basic auth,\nthe admin account comes from createsuperuser, static files are part of the image,\nthe repository folder is videoflix-backend, and production runs through the\ndeploy repository."
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "64fdbc7858b1e4aea6e568263853389594b24668",
+    "title": "fix: treat email addresses case-insensitively",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T20:18:48+00:00",
+    "files": [
+      "accounts_app/api/backends.py",
+      "accounts_app/api/serializers.py",
+      "accounts_app/api/views.py",
+      "accounts_app/models.py",
+      "accounts_app/tests.py"
+    ],
+    "patch": "diff --git a/accounts_app/api/backends.py b/accounts_app/api/backends.py\n@@ -12,9 +12,9 @@ class EmailBackend(ModelBackend):\n \n     def authenticate(self, request, username=None, password=None, **kwargs):\n         UserModel = get_user_model()\n-        try:\n-            user = UserModel.objects.get(email=username)\n-            if user.check_password(password):\n-                return user\n-        except UserModel.DoesNotExist:\n-            return None\n+        # The JWT serializer authenticates a second time and passes the address as \"email\".\n+        email = username or kwargs.get(UserModel.USERNAME_FIELD)\n+        user = UserModel.objects.find_by_email(email)\n+        if user and user.check_password(password):\n+            return user\n+        return None\ndiff --git a/accounts_app/api/serializers.py b/accounts_app/api/serializers.py\n@@ -22,11 +22,11 @@ class Meta:\n         extra_kwargs = {\"password\": {\"write_only\": True}}\n \n     def validate_email(self, value):\n-        if CustomUser.objects.filter(email=value).exists():\n+        if CustomUser.objects.filter(email__iexact=value).exists():\n             raise serializers.ValidationError(\n                 \"Please check your entries and try again.\"\n             )\n-        return value\n+        return value.lower()\n \n     def validate(self, data):\n         if data[\"password\"] != data[\"confirmed_password\"]:\ndiff --git a/accounts_app/api/views.py b/accounts_app/api/views.py\n@@ -218,19 +218,16 @@ class RequestNewActivationLinkView(views.APIView):\n \n     def post(self, request):\n         email = request.data.get(\"email\")\n-        try:\n-            user = CustomUser.objects.get(email=email, is_active=False)\n-            if (\n-                not user.activation_code_expiry\n-                or timezone.now() > user.activation_code_expiry\n-            ):\n-                user.activation_code, user.activation_code_expiry = (\n-                    generate_activation_code()\n-                )\n… truncated",
+    "body": "Addresses were stored as typed and compared exactly: a mixed-case registration\ncould not log in with the same input, and repeating it ended in a 500. New\naddresses are stored lower-case, and registration, login, password reset and new\nactivation links ignore case. Older rows that differ only by case cause no error:\nthe exact spelling wins, then the oldest row. No data migration."
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "96646f2372e29ad3ee4a838c42c0c6e1c927e482",
+    "title": "fix: delete accounts immediately and for good",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T20:17:45+00:00",
+    "files": [
+      "README.md",
+      "accounts_app/api/serializers.py",
+      "accounts_app/api/urls.py",
+      "accounts_app/api/views.py",
+      "accounts_app/models.py",
+      "accounts_app/tests.py",
+      "video_app/tests.py"
+    ],
+    "patch": "diff --git a/README.md b/README.md\n@@ -15,7 +15,7 @@ Videoflix allows users to register, upload videos, stream in multiple resolution\n   - Video streaming in multiple resolutions (HLS)\n   - Video progress tracking per user\n - **Admin Features**\n-  - Soft and hard account deletion, account restoration\n+  - Permanent account deletion\n   - Admin interface with import/export for data\n - **API Documentation**\n   - Interactive Swagger & Redoc docs (auto-generated from code)\ndiff --git a/accounts_app/api/serializers.py b/accounts_app/api/serializers.py\n@@ -67,7 +67,7 @@ def validate(self, attrs):\n             password=password,\n         )\n \n-        if not user or not user.is_active or getattr(user, \"is_soft_deleted\", False):\n+        if not user or not user.is_active:\n             raise serializers.ValidationError(\n                 \"Please check your entries and try again.\"\n             )\ndiff --git a/accounts_app/api/urls.py b/accounts_app/api/urls.py\n@@ -6,6 +6,7 @@\n from .views import (\n     CustomLoginCookieView,\n     CustomLoginCookieRefreshView,\n+    DeleteAccountView,\n     DemoStartView,\n     HardDeleteAccountView,\n     LogoutView,\n@@ -15,8 +16,6 @@\n     RequestNewActivationLinkView,\n     PasswordResetRequestView,\n     PasswordResetConfirmView,\n-    RestoreAccountView,\n-    SoftDeleteAccountView,\n )\n \n urlpatterns = [\n@@ -26,9 +25,8 @@\n     path('token/refresh/', CustomLoginCookieRefreshView.as_view(), name='login-user-refresh'),\n     path('activate/<str:uid>/<str:token>/', ActivateAccountView.as_view(), name='activate_account'),\n     path('request-new-activation-link/', RequestNewActivationLinkView.as_view(), name='request_new_activation_link'),\n-    path('delete-account/', SoftDeleteAccountView.as_view(), name='soft-delete-account'),\n+    path('delete-account/', DeleteAccountView.as_view(), name='delete-account'),\n     path('admin/delete-account/<int:pk>/', HardDeleteAccountView.as_view(), name='hard-delete-account'),\n… truncated",
+    "body": "DELETE /api/delete-account/ only deactivated the account: email, hash and uploads\nstayed, and a new activation link brought it back. It now deletes the row with\nits uploads and files and clears the auth cookies. The restore route and every\nuse of is_soft_deleted are gone.\n\nThe column stays without a migration, so an older image still runs after a\nrollback. Removing it follows after 1.0."
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "d0cedb89d69f93aae9b4246ead798606da3de298",
+    "title": "fix: limit worker time for uploads with many frames",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T20:15:17+00:00",
+    "files": [
+      "video_app/api/serializers.py",
+      "video_app/api/tasks.py",
+      "video_app/api/utils.py",
+      "video_app/tests.py"
+    ],
+    "patch": "diff --git a/video_app/api/serializers.py b/video_app/api/serializers.py\n@@ -9,7 +9,9 @@\n     ALLOWED_UPLOAD_EXTENSIONS,\n     MAX_UPLOAD_SIZE,\n     MAX_VIDEO_DURATION_SECONDS,\n+    MAX_VIDEO_FPS,\n     MAX_VIDEO_PIXELS,\n+    parse_frame_rate,\n     probe_video,\n )\n \n@@ -94,7 +96,7 @@ def validate_video_file(self, value):\n \n     def _validate_video_content(self, value):\n         \"\"\"\n-        Check the real container, a video stream, the duration and the frame size with ffprobe.\n+        Check the real container, a video stream, the duration, frame size and frame rate with ffprobe.\n         \"\"\"\n         probe = probe_video(value)\n         if not probe or not probe.get(\"streams\"):\n@@ -114,12 +116,15 @@ def _validate_video_content(self, value):\n \n     def _validate_video_stream(self, stream):\n         \"\"\"\n-        Reject frames over the pixel limit. Over -max_pixels ffprobe can exit 0 and report 0x0,\n-        so a missing size counts as too large.\n+        Reject frames over the pixel limit and rates over the fps limit. Over -max_pixels ffprobe\n+        can exit 0 and report 0x0, so a missing size counts as too large. An unknown rate passes:\n+        headers can lie anyway, so -fpsmax and the conversion timeout limit the worker.\n         \"\"\"\n         pixels = stream.get(\"width\", 0) * stream.get(\"height\", 0)\n         if not 0 < pixels <= MAX_VIDEO_PIXELS:\n             raise serializers.ValidationError(\"The video resolution must not be higher than 3840x2160.\")\n+        if parse_frame_rate(stream.get(\"avg_frame_rate\")) > MAX_VIDEO_FPS:\n+            raise serializers.ValidationError(\"The video must not have more than 120 frames per second.\")\n \n     def validate(self, data):\n         \"\"\"\ndiff --git a/video_app/api/tasks.py b/video_app/api/tasks.py\n@@ -17,6 +17,7 @@\n     is_valid_video_extension,\n     MAX_VIDEO_DURATION_SECONDS,\n     STANDARD_VIDEOS_CACHE_KEY,\n+    UPLOAD_CONVERSION_TIMEOUT_SECONDS,\n     get_ffmpeg_thumbnail_command,\n     THUMBNAIL_SEEK_FALLBACK,\n… truncated",
+    "body": "A small file with a very high frame rate could hold the single worker until the\njob timer ended. Uploads above 120 fps are rejected and the HLS output is capped\nat 60 fps. Because headers can lie, conversions of uploads also get a time limit\nper resolution and stop after the first failed one. Catalog videos keep running\nwithout a limit."
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "f009e76db22af845784dd9dae330c27aa5139a49",
+    "title": "fix: refuse uploads with frames over the pixel limit",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T20:06:49+00:00",
+    "files": [
+      "video_app/api/serializers.py",
+      "video_app/api/utils.py",
+      "video_app/tests.py"
+    ],
+    "patch": "diff --git a/video_app/api/serializers.py b/video_app/api/serializers.py\n@@ -9,6 +9,7 @@\n     ALLOWED_UPLOAD_EXTENSIONS,\n     MAX_UPLOAD_SIZE,\n     MAX_VIDEO_DURATION_SECONDS,\n+    MAX_VIDEO_PIXELS,\n     probe_video,\n )\n \n@@ -93,7 +94,7 @@ def validate_video_file(self, value):\n \n     def _validate_video_content(self, value):\n         \"\"\"\n-        Check the real container, a video stream and the duration with ffprobe.\n+        Check the real container, a video stream, the duration and the frame size with ffprobe.\n         \"\"\"\n         probe = probe_video(value)\n         if not probe or not probe.get(\"streams\"):\n@@ -108,6 +109,17 @@ def _validate_video_content(self, value):\n             raise serializers.ValidationError(\"The file is not a readable video.\")\n         if duration > MAX_VIDEO_DURATION_SECONDS:\n             raise serializers.ValidationError(\"The video must not be longer than 2 minutes.\")\n+        for stream in probe[\"streams\"]:\n+            self._validate_video_stream(stream)\n+\n+    def _validate_video_stream(self, stream):\n+        \"\"\"\n+        Reject frames over the pixel limit. Over -max_pixels ffprobe can exit 0 and report 0x0,\n+        so a missing size counts as too large.\n+        \"\"\"\n+        pixels = stream.get(\"width\", 0) * stream.get(\"height\", 0)\n+        if not 0 < pixels <= MAX_VIDEO_PIXELS:\n+            raise serializers.ValidationError(\"The video resolution must not be higher than 3840x2160.\")\n \n     def validate(self, data):\n         \"\"\"\ndiff --git a/video_app/api/utils.py b/video_app/api/utils.py\n@@ -15,9 +15,12 @@\n MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB\n MAX_VIDEO_DURATION_SECONDS = 120\n MAX_UPLOADS_PER_ACCOUNT = 2\n+MAX_VIDEO_PIXELS = 8294400  # 3840 x 2160\n \n # Uploads are untrusted: a crafted file must not make ffmpeg or ffprobe open URLs.\n LOCAL_FILES_ONLY = [\"-protocol_whitelist\", \"file\"]\n+# Nor may a small file claim many GB of memory with huge frames. An input option, so it goes before -i.\n… truncated",
+    "body": "A small file with huge frames could claim many GB of memory in ffprobe and\nffmpeg, with no container limit in place. All three commands now pass\n-max_pixels, and the upload check rejects larger frames. ffprobe can exit 0 and\nreport 0x0 at that limit, so an unknown frame size is rejected as well."
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "e2eb140c8ac160e325100a864acd029aea06a3e9",
+    "title": "fix: limit login attempts on the django admin",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T20:03:51+00:00",
+    "files": [
+      "accounts_app/tests.py",
+      "core/admin_login.py",
+      "core/urls.py"
+    ],
+    "patch": "diff --git a/accounts_app/tests.py b/accounts_app/tests.py\n@@ -659,6 +659,78 @@ def test_mail_endpoints_share_an_hourly_limit(self):\n                 self.assertEqual(self.client.post(url, data, format=\"json\").status_code, 429)\n \n \n+@override_settings(\n+    # Admin pages need static files; the manifest only exists after collectstatic (prod image).\n+    STORAGES={\n+        \"default\": {\"BACKEND\": \"django.core.files.storage.FileSystemStorage\"},\n+        \"staticfiles\": {\"BACKEND\": \"django.contrib.staticfiles.storage.StaticFilesStorage\"},\n+    }\n+)\n+class AdminLoginThrottlingTests(APITestCase):\n+    \"\"\"\n+    The Django admin login, also used by the RQ dashboard, has the same limit as the API login\n+    (X5 finding 3): 5 POST per minute per IP, with one counter for both.\n+    \"\"\"\n+\n+    url = \"/admin/login/\"\n+\n+    def setUp(self):\n+        cache.clear()\n+        self.addCleanup(cache.clear)\n+\n+    def _login(self, password=\"wrong\", **extra):\n+        return self.client.post(self.url, {\"username\": \"root@test.de\", \"password\": password}, **extra)\n+\n+    def test_login_is_limited_per_ip(self):\n+        for _ in range(5):\n+            self.assertEqual(self._login().status_code, 200)\n+        response = self._login()\n+        self.assertEqual(response.status_code, 429)\n+        self.assertTrue(response[\"Retry-After\"])\n+\n+    def test_limit_is_per_ip(self):\n+        for _ in range(5):\n+            self._login(REMOTE_ADDR=\"10.0.0.1\")\n+        self.assertEqual(self._login(REMOTE_ADDR=\"10.0.0.2\").status_code, 200)\n+\n+    def test_spoofed_forwarded_for_does_not_bypass_limit(self):\n+        for i in range(5):\n+            self._login(HTTP_X_FORWARDED_FOR=f\"203.0.113.{i}\")\n+        self.assertEqual(self._login(HTTP_X_FORWARDED_FOR=\"203.0.113.99\").status_code, 429)\n+\n+    def test_behind_one_proxy_the_forwarded_client_ip_counts(self):\n+        with override_settings(REST_FRAMEWORK={**settings.REST_FRAMEWORK, \"NUM_PROXIES\": 1}):\n+            for _ in range(5):\n… truncated",
+    "body": "The admin login, which also guards the RQ dashboard, had no limit. POST now\nshares the rate, the Redis counter and the client IP logic of the API login and\nanswers 429 before any password is hashed. GET stays free."
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "18bfc8a64c9a4c73713ddb3f004f8209d12f950e",
+    "title": "fix: keep ffmpeg output out of the server log",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T20:00:25+00:00",
+    "files": [
+      "video_app/api/tasks.py",
+      "video_app/tests.py"
+    ],
+    "patch": "diff --git a/video_app/api/tasks.py b/video_app/api/tasks.py\n@@ -93,7 +93,7 @@ def _run_thumbnail_attempt(command, output_path):\n     An attempt succeeds only if ffmpeg exits 0 and leaves a non-empty file; some builds exit 0 without output.\n     \"\"\"\n     try:\n-        subprocess.run(command, check=True)\n+        subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n     except subprocess.CalledProcessError as e:\n         logger.info(\"ffmpeg exited with code %s while creating a thumbnail.\", e.returncode)\n         return False\n@@ -183,7 +183,8 @@ def _run_hls_command(\n         default_storage.path(input_file.name), out_dir, base_name, res_height, max_seconds\n     )\n     try:\n-        subprocess.run(command, check=True)\n+        # ffmpeg prints file names and metadata (titles, GPS); logs carry IDs only (VFX-31).\n+        subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n         rel_playlist_path = os.path.relpath(\n             os.path.join(out_dir, \"index.m3u8\"), settings.MEDIA_ROOT\n         )\n@@ -197,9 +198,15 @@ def _run_hls_command(\n         )\n         update_video_cache()\n         return True\n+    except subprocess.CalledProcessError as e:\n+        logger.error(\n+            \"ffmpeg exited with code %s while converting video %s to %s.\",\n+            e.returncode, video_instance.pk, res_label,\n+        )\n     except Exception as e:\n-        set_video_failed(video_instance)\n-        return False\n+        logger.error(\"Error converting video %s to %s: %s\", video_instance.pk, res_label, type(e).__name__)\n+    set_video_failed(video_instance)\n+    return False\n \n \n def set_video_failed(video_instance):\ndiff --git a/video_app/tests.py b/video_app/tests.py\n@@ -77,6 +77,54 @@ def test_length_limit_is_an_output_option_after_the_input(self):\n         self.assertEqual(limited, plain)\n \n \n+class FfmpegOutputTests(APITestCase):\n+    \"\"\"\n… truncated",
+    "body": "ffmpeg prints file names and upload metadata such as titles and GPS tags to\nstderr, which reaches the host journal unformatted. Discard its output in both\ncalls and log only the exit code and IDs."
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "db36553db76de6664172e76e0dccce8d280255d3",
+    "title": "fix: cap upload conversions at the allowed length and harden stream statistics",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T16:32:48+00:00",
+    "files": [
+      "video_app/api/signals.py",
+      "video_app/api/streams.py",
+      "video_app/api/tasks.py",
+      "video_app/api/utils.py",
+      "video_app/tests.py"
+    ],
+    "patch": "diff --git a/video_app/api/signals.py b/video_app/api/signals.py\n@@ -6,6 +6,7 @@\n import os\n import posixpath\n import shutil\n+from django.conf import settings\n from django.core.cache import cache\n from django.db.models.signals import post_save, pre_delete\n from django.dispatch import receiver\n@@ -42,6 +43,7 @@ def video_pre_delete(sender, instance, **kwargs):\n     Delete video files and related HLS folders when a video is deleted.\n     \"\"\"\n     _delete_original_video_file(instance)\n+    _delete_own_hls_folder(instance)\n     video_dirs = _delete_all_hls_and_collect_dirs(instance)\n     _delete_empty_video_dirs(video_dirs)\n     _delete_thumbnail_file(instance)\n@@ -56,6 +58,17 @@ def _delete_original_video_file(instance):\n         logger.info(\"Original file of video %s deleted from storage.\", instance.pk)\n \n \n+def _delete_own_hls_folder(instance):\n+    \"\"\"\n+    Delete hls/<pk>, which belongs to this video alone, even if no resolution row exists\n+    (a stopped conversion leaves segments behind). The name is the integer pk, nothing else.\n+    \"\"\"\n+    own_dir = os.path.join(settings.MEDIA_ROOT, \"hls\", str(int(instance.pk)))\n+    if os.path.isdir(own_dir) and not os.path.islink(own_dir):\n+        shutil.rmtree(own_dir, ignore_errors=True)\n+        logger.info(\"HLS folder of video %s deleted.\", instance.pk)\n+\n+\n def _delete_all_hls_and_collect_dirs(instance):\n     \"\"\"\n     Delete all HLS folders for every converted resolution and collect their parent directories.\ndiff --git a/video_app/api/streams.py b/video_app/api/streams.py\n@@ -2,6 +2,7 @@\n Statistics of an HLS stream, read from its playlist and segment files.\n \"\"\"\n \n+import math\n import os\n \n \n@@ -57,9 +58,9 @@ def read_stream_stats(playlist_path):\n                     duration += pending\n                     size_bytes += size\n                 pending = None\n-    except (OSError, ValueError):\n+    except (OSError, ValueError, OverflowError):\n         return None\n-    if target is None or duration <= 0:\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "26e11567b2c4a4d24a4b9015cda2aa37b6a8788f",
+    "title": "feat: use a slower preset for smaller hls segments",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T15:03:21+00:00",
+    "files": [
+      "video_app/api/utils.py",
+      "video_app/tests.py"
+    ],
+    "patch": "diff --git a/video_app/api/utils.py b/video_app/api/utils.py\n@@ -99,9 +99,9 @@ def get_ffmpeg_hls_command(input_path, output_dir, base_name, height):\n         \"-c:v\",\n         \"libx264\",\n         \"-preset\",\n-        \"ultrafast\",\n+        \"veryfast\",\n         \"-crf\",\n-        \"32\",\n+        \"28\",\n         \"-c:a\",\n         \"aac\",\n         \"-b:a\",\ndiff --git a/video_app/tests.py b/video_app/tests.py\n@@ -47,7 +47,6 @@ def ffprobe_output(format_name=MP4_FORMAT, duration=\"30.0\", has_video=True, retu\n     )\n \n \n-\n class HlsCommandTests(SimpleTestCase):\n     def test_segments_are_four_seconds_with_fixed_keyframes(self):\n         # Short segments start faster; keyframes at fixed times keep every segment 4 s long.\n@@ -58,6 +57,11 @@ def test_segments_are_four_seconds_with_fixed_keyframes(self):\n         )\n         self.assertEqual(cmd[cmd.index(\"-sc_threshold\") + 1], \"0\")\n \n+    def test_encoder_uses_a_slower_preset_for_smaller_segments(self):\n+        cmd, _ = utils.get_ffmpeg_hls_command(\"input\", \"output\", \"base\", 720)\n+        self.assertEqual(cmd[cmd.index(\"-preset\") + 1], \"veryfast\")\n+        self.assertEqual(cmd[cmd.index(\"-crf\") + 1], \"28\")\n+\n \n class VideoAppIntegrationTests(APITestCase):\n     \"\"\"",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "c0bc92be18615292f1f610897fab2e61b8993589",
+    "title": "feat: add the approved titles and descriptions of the 42 demo clips",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T15:03:00+00:00",
+    "files": [
+      "video_app/management/commands/catalog.json"
+    ],
+    "patch": "diff --git a/video_app/management/commands/catalog.json b/video_app/management/commands/catalog.json\n@@ -1 +1,212 @@\n-{}\n+{\n+  \"ak47_schiessstand_action\": {\n+    \"title\": \"On the Range\",\n+    \"description\": \"A shooter in ear protection fires a rifle at targets on an outdoor range.\",\n+    \"category\": \"Action\"\n+  },\n+  \"helicopter_action\": {\n+    \"title\": \"Over the Lake\",\n+    \"description\": \"A yellow helicopter flies low over a lake with a red bucket on its line.\",\n+    \"category\": \"Action\"\n+  },\n+  \"autodieb_crime\": {\n+    \"title\": \"Snatched\",\n+    \"description\": \"A hand reaches through an open car door and takes a bag from the seat.\",\n+    \"category\": \"Crime\"\n+  },\n+  \"hacker_crime\": {\n+    \"title\": \"After Hours\",\n+    \"description\": \"A hooded figure works in the dark in front of screens full of data.\",\n+    \"category\": \"Crime\"\n+  },\n+  \"frau_angst_mystery\": {\n+    \"title\": \"Something's There\",\n+    \"description\": \"A woman stares wide-eyed past the camera and gasps in fear.\",\n+    \"category\": \"Mystery\"\n+  },\n+  \"halloween_mystery\": {\n+    \"title\": \"Pumpkin Night\",\n+    \"description\": \"Carved pumpkins and candles glow under a full moon while bats circle overhead.\",\n+    \"category\": \"Mystery\"\n+  },\n+  \"mann_fenster_mystery\": {\n+    \"title\": \"City Below\",\n+    \"description\": \"A silhouetted man stands at a window high above a glowing city and raises his hand.\",\n+    \"category\": \"Mystery\"\n+  },\n+  \"segelschiff_mstery\": {\n+    \"title\": \"Ship in the Moonlight\",\n+    \"description\": \"A lone sailing ship lies on a dark sea while the moon reflects on the water.\",\n+    \"category\": \"Mystery\"\n+  },\n+  \"händchen_romance\": {\n+    \"title\": \"Hand in Hand\",\n+    \"description\": \"Two people reach for each other and join hands in the low sun of a quiet street.\",\n+    \"category\": \"Romance\"\n+  },\n+  \"liebeschlösser_romance\": {\n+    \"title\": \"Love Locks\",\n+    \"description\": \"Hundreds of padlocks hang from a railing above a beach.\",\n+    \"category\": \"Romance\"\n+  },\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "ac4b7ae02033e6e62755dc68f6c88e383027a87d",
+    "title": "fix: keep streams per video and check the whole import before replacing",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T15:02:51+00:00",
+    "files": [
+      "video_app/api/signals.py",
+      "video_app/api/tasks.py",
+      "video_app/management/commands/import_catalog.py",
+      "video_app/tests.py"
+    ],
+    "patch": "diff --git a/video_app/api/signals.py b/video_app/api/signals.py\n@@ -4,12 +4,13 @@\n \n import logging\n import os\n+import posixpath\n import shutil\n from django.core.cache import cache\n from django.db.models.signals import post_save, pre_delete\n from django.dispatch import receiver\n from django.core.files.storage import default_storage\n-from video_app.models import Video\n+from video_app.models import Video, VideoResolution\n from .tasks import convert_video, create_thumbnail\n from .utils import STANDARD_VIDEOS_CACHE_KEY\n import django_rq\n@@ -64,12 +65,26 @@ def _delete_all_hls_and_collect_dirs(instance):\n         if res.converted_file:\n             hls_dir = os.path.dirname(res.converted_file.path)\n             video_dirs.add(os.path.dirname(hls_dir))\n-            if os.path.exists(hls_dir):\n+            if _folder_used_by_other_video(res, instance):\n+                logger.info(\"HLS folder of video %s (%s) is shared, kept.\", instance.pk, res.resolution)\n+            elif os.path.exists(hls_dir):\n                 shutil.rmtree(hls_dir, ignore_errors=True)\n                 logger.info(\"HLS folder of video %s (%s) deleted.\", instance.pk, res.resolution)\n     return video_dirs\n \n \n+def _folder_used_by_other_video(res, instance):\n+    \"\"\"\n+    Older videos were converted into a folder named after the file; equal names share one.\n+    \"\"\"\n+    folder = posixpath.dirname(res.converted_file.name)\n+    return (\n+        VideoResolution.objects.filter(converted_file__startswith=f\"{folder}/\")\n+        .exclude(original_video=instance)\n+        .exists()\n+    )\n+\n+\n def _delete_empty_video_dirs(video_dirs):\n     \"\"\"\n     Delete video directories if they are empty.\ndiff --git a/video_app/api/tasks.py b/video_app/api/tasks.py\n@@ -63,10 +63,16 @@ def _run_thumbnail_command(input_path, output_path, video_instance, output_filen\n         return\n     with open(output_path, \"rb\") as f:\n         video_instance.thumbnail_url.save(\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "289c3cf7cf6e9df213ee5c67f8463117a35e5ee4",
+    "title": "feat: add a read-only endpoint with stream statistics",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T14:58:48+00:00",
+    "files": [
+      "video_app/api/streams.py",
+      "video_app/api/urls.py",
+      "video_app/api/views.py",
+      "video_app/tests.py"
+    ],
+    "patch": "diff --git a/video_app/api/streams.py b/video_app/api/streams.py\n@@ -0,0 +1,70 @@\n+\"\"\"\n+Statistics of an HLS stream, read from its playlist and segment files.\n+\"\"\"\n+\n+import os\n+\n+\n+def _is_segment_name(name):\n+    # A bare file name ending in .ts; anything with a path part is untrusted (VFX-30).\n+    return (\n+        name.endswith(\".ts\")\n+        and name not in (\".ts\", \"\")\n+        and name == os.path.basename(name)\n+        and \"\\\\\" not in name\n+        and \":\" not in name\n+    )\n+\n+\n+def _segment_size(base_dir, name):\n+    \"\"\"\n+    Size of a segment file inside base_dir, or None if it is not a regular file there.\n+    \"\"\"\n+    path = os.path.realpath(os.path.join(base_dir, name))\n+    if not path.startswith(base_dir + os.sep) or not os.path.isfile(path):\n+        return None\n+    return os.path.getsize(path)\n+\n+\n+def read_stream_stats(playlist_path):\n+    \"\"\"\n+    Compute segment length, count, duration, size and bitrate from a media playlist.\n+\n+    Returns None if the playlist or one of its segments is missing or unreadable,\n+    or if the playlist has no duration.\n+    \"\"\"\n+    try:\n+        base_dir = os.path.realpath(os.path.dirname(playlist_path))\n+        with open(playlist_path, \"r\", encoding=\"utf-8\") as playlist:\n+            lines = [line.strip() for line in playlist]\n+        target = None\n+        segment_count = 0\n+        duration = 0.0\n+        size_bytes = 0\n+        pending = None\n+        for line in lines:\n+            if line.startswith(\"#EXT-X-TARGETDURATION:\"):\n+                target = int(float(line.split(\":\", 1)[1]))\n+            elif line.startswith(\"#EXTINF:\"):\n+                pending = float(line.split(\":\", 1)[1].split(\",\", 1)[0])\n+            elif line and not line.startswith(\"#\"):\n+                # Segments with a path part count neither for size nor for duration.\n+                if pending is not None and _is_segment_name(line):\n+                    size = _segment_size(base_dir, line)\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "f933366166bfa1a6301ccf5ed1b145c98dd7a9df",
+    "title": "fix: rename version fields to the published contract",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T14:24:41+00:00",
+    "files": [
+      "core/health.py",
+      "core/tests.py"
+    ],
+    "patch": "diff --git a/core/health.py b/core/health.py\n@@ -42,7 +42,7 @@ class VersionView(views.APIView):\n     throttle_classes = []\n \n     def get(self, request):\n-        return Response({\"commit\": settings.GIT_SHA, \"build_time\": settings.BUILD_TIME})\n+        return Response({\"sha\": settings.GIT_SHA, \"builtAt\": settings.BUILD_TIME})\n \n \n def _check_database():\ndiff --git a/core/tests.py b/core/tests.py\n@@ -124,10 +124,10 @@ class VersionEndpointTests(APITestCase):\n     \"\"\"\n \n     @override_settings(GIT_SHA=\"abc1234\", BUILD_TIME=\"2026-11-05T12:00:00Z\")\n-    def test_returns_commit_and_build_time_without_login(self):\n+    def test_returns_sha_and_built_at_without_login(self):\n         response = self.client.get(\"/api/version/\")\n         self.assertEqual(response.status_code, 200)\n-        self.assertEqual(response.data, {\"commit\": \"abc1234\", \"build_time\": \"2026-11-05T12:00:00Z\"})\n+        self.assertEqual(response.data, {\"sha\": \"abc1234\", \"builtAt\": \"2026-11-05T12:00:00Z\"})\n \n     def test_path_without_slash_redirects_to_it(self):\n         response = self.client.get(\"/api/version\")",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "40fdfaef6b62843ff371701b65609cec46a53125",
+    "title": "feat: import the demo catalog with real titles and descriptions",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T14:22:22+00:00",
+    "files": [
+      "video_app/management/commands/catalog.json",
+      "video_app/management/commands/import_catalog.py",
+      "video_app/tests.py"
+    ],
+    "patch": "diff --git a/video_app/management/commands/catalog.json b/video_app/management/commands/catalog.json\n@@ -0,0 +1 @@\n+{}\ndiff --git a/video_app/management/commands/import_catalog.py b/video_app/management/commands/import_catalog.py\n@@ -6,16 +6,25 @@\n names without a known category become Documentary. Saving the video starts the\n thumbnail and conversion jobs like an upload. Videos whose title already exists in\n the standard catalog are skipped, so the command can run again after an error.\n+\n+Title, description and category come from catalog.json (key: file name without\n+extension). Files missing there fall back to the file name and a generic description.\n+With --replace the standard catalog is deleted first (files included) and rebuilt from\n+the folder; uploads of accounts are never touched.\n \"\"\"\n \n+import json\n import re\n from pathlib import Path\n \n+from django.core.cache import cache\n from django.core.files import File\n from django.core.management.base import BaseCommand, CommandError\n \n+from video_app.api.utils import STANDARD_VIDEOS_CACHE_KEY\n from video_app.models import Video\n \n+CATALOG_PATH = Path(__file__).with_name(\"catalog.json\")\n DEFAULT_CATEGORY = \"Documentary\"\n DESCRIPTION = \"Sample clip from the Videoflix demo catalog.\"\n \n@@ -33,6 +42,14 @@\n }\n \n \n+def load_catalog():\n+    \"\"\"\n+    Read the curated texts: {\"file_name_without_extension\": {\"title\", \"description\", \"category\"}}.\n+    \"\"\"\n+    with CATALOG_PATH.open(encoding=\"utf-8\") as f:\n+        return json.load(f)\n+\n+\n def title_and_category(path):\n     \"\"\"\n     \"segelschiff_mstery\" -> (\"Segelschiff\", \"Mystery\"), \"bird_2\" -> (\"Bird 2\", \"Documentary\").\n@@ -52,23 +69,55 @@ class Command(BaseCommand):\n \n     def add_arguments(self, parser):\n         parser.add_argument(\"folder\", help=\"Folder with the sample clips (searched recursively)\")\n+        parser.add_argument(\n+            \"--replace\",\n+            action=\"store_true\",\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "a04e7a342ed33456b2e38b383f99d5a2a7e142f8",
+    "title": "feat: cut hls segments to four seconds with fixed keyframes",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T14:13:24+00:00",
+    "files": [
+      "video_app/api/utils.py",
+      "video_app/tests.py"
+    ],
+    "patch": "diff --git a/video_app/api/utils.py b/video_app/api/utils.py\n@@ -79,6 +79,10 @@ def get_ffmpeg_thumbnail_command(input_path, output_path, seek=THUMBNAIL_SEEK):\n     ]\n \n \n+# Short segments let playback start sooner; keyframes at fixed times keep every segment this long.\n+HLS_SEGMENT_SECONDS = 4\n+\n+\n def get_ffmpeg_hls_command(input_path, output_dir, base_name, height):\n     \"\"\"\n     Return the ffmpeg command and output path for creating HLS segments and playlist.\n@@ -102,8 +106,12 @@ def get_ffmpeg_hls_command(input_path, output_dir, base_name, height):\n         \"aac\",\n         \"-b:a\",\n         \"128k\",\n+        \"-force_key_frames\",\n+        f\"expr:gte(t,n_forced*{HLS_SEGMENT_SECONDS})\",\n+        \"-sc_threshold\",\n+        \"0\",\n         \"-hls_time\",\n-        \"16\",\n+        str(HLS_SEGMENT_SECONDS),\n         \"-hls_list_size\",\n         \"0\",\n         \"-hls_segment_filename\",\ndiff --git a/video_app/tests.py b/video_app/tests.py\n@@ -9,7 +9,7 @@\n from django.core.cache import cache\n from django.core.management import call_command\n from django.http import Http404\n-from django.test import override_settings\n+from django.test import SimpleTestCase, override_settings\n from django.urls import Resolver404, resolve, reverse\n from rest_framework.test import APIClient, APITestCase\n from rest_framework import status\n@@ -44,6 +44,18 @@ def ffprobe_output(format_name=MP4_FORMAT, duration=\"30.0\", has_video=True, retu\n     )\n \n \n+\n+class HlsCommandTests(SimpleTestCase):\n+    def test_segments_are_four_seconds_with_fixed_keyframes(self):\n+        # Short segments start faster; keyframes at fixed times keep every segment 4 s long.\n+        cmd, _ = utils.get_ffmpeg_hls_command(\"input\", \"output\", \"base\", 720)\n+        self.assertEqual(cmd[cmd.index(\"-hls_time\") + 1], \"4\")\n+        self.assertEqual(\n+            cmd[cmd.index(\"-force_key_frames\") + 1], \"expr:gte(t,n_forced*4)\"\n+        )\n+        self.assertEqual(cmd[cmd.index(\"-sc_threshold\") + 1], \"0\")\n+\n+\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "9502f215a69d41b94b0afb54b422ec05f7cd1cc9",
+    "title": "test: cover the thumbnail success check with real files",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-06T20:23:51+00:00",
+    "files": [
+      "video_app/api/tasks.py",
+      "video_app/tests.py"
+    ],
+    "patch": "diff --git a/video_app/api/tasks.py b/video_app/api/tasks.py\n@@ -87,7 +87,8 @@ def _run_thumbnail_attempt(command, output_path):\n     \"\"\"\n     try:\n         subprocess.run(command, check=True)\n-    except subprocess.CalledProcessError:\n+    except subprocess.CalledProcessError as e:\n+        logger.info(\"ffmpeg exited with code %s while creating a thumbnail.\", e.returncode)\n         return False\n     return _thumbnail_written(output_path)\n \ndiff --git a/video_app/tests.py b/video_app/tests.py\n@@ -496,6 +496,18 @@ def test_thumbnail_fails_when_both_attempts_exit_cleanly_without_a_file(\n         video.refresh_from_db()\n         self.assertEqual(video.status, \"failed\")\n \n+    def test_thumbnail_counts_as_written_only_with_content(self):\n+        with tempfile.TemporaryDirectory() as tmp:\n+            missing = os.path.join(tmp, \"missing.jpg\")\n+            empty = os.path.join(tmp, \"empty.jpg\")\n+            filled = os.path.join(tmp, \"filled.jpg\")\n+            open(empty, \"wb\").close()\n+            with open(filled, \"wb\") as f:\n+                f.write(b\"img\")\n+            self.assertFalse(tasks._thumbnail_written(missing))\n+            self.assertFalse(tasks._thumbnail_written(empty))\n+            self.assertTrue(tasks._thumbnail_written(filled))\n+\n     @patch(\"video_app.api.tasks.subprocess.run\")\n     def test_thumbnail_fails_when_both_attempts_fail(self, mock_run):\n         mock_run.side_effect = subprocess.CalledProcessError(234, [\"ffmpeg\"])",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "919d7bf964c73ed4bc5ac36728801238c91add46",
+    "title": "fix: treat a missing thumbnail file as a failed attempt",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-06T20:21:45+00:00",
+    "files": [
+      "video_app/api/tasks.py",
+      "video_app/tests.py"
+    ],
+    "patch": "diff --git a/video_app/api/tasks.py b/video_app/api/tasks.py\n@@ -57,33 +57,43 @@ def _run_thumbnail_command(input_path, output_path, video_instance, output_filen\n     \"\"\"\n     Run ffmpeg to create a thumbnail and save it to the video instance.\n     \"\"\"\n-    try:\n-        _run_thumbnail_with_fallback(input_path, output_path, video_instance)\n-        with open(output_path, \"rb\") as f:\n-            video_instance.thumbnail_url.save(\n-                output_filename, ContentFile(f.read()), save=True\n-            )\n-        logger.info(\"Thumbnail created for video %s.\", video_instance.pk)\n-        video_instance.save()\n-    except subprocess.CalledProcessError as e:\n-        logger.error(\"Failed to create thumbnail for video %s (exit code %s).\", video_instance.pk, e.returncode)\n+    if not _create_thumbnail_file(input_path, output_path, video_instance):\n+        logger.error(\"Failed to create thumbnail for video %s.\", video_instance.pk)\n         set_video_failed(video_instance)\n+        return\n+    with open(output_path, \"rb\") as f:\n+        video_instance.thumbnail_url.save(\n+            output_filename, ContentFile(f.read()), save=True\n+        )\n+    logger.info(\"Thumbnail created for video %s.\", video_instance.pk)\n+    video_instance.save()\n \n \n-def _run_thumbnail_with_fallback(input_path, output_path, video_instance):\n+def _create_thumbnail_file(input_path, output_path, video_instance):\n     \"\"\"\n-    Seek to the default position; if ffmpeg writes nothing (clip too short), retry from the first frame.\n+    Seek to the default position; if that yields no image (clip too short), retry from the first frame.\n+    Return True if a thumbnail file was written.\n+    \"\"\"\n+    if _run_thumbnail_attempt(get_ffmpeg_thumbnail_command(input_path, output_path), output_path):\n+        return True\n+    logger.info(\"No thumbnail at the default position for video %s, retrying from the first frame.\", video_instance.pk)\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "8080e2884f4bab29f5f5d02d988e37beacb4fa5a",
+    "title": "fix: fall back to the first frame for clips under five seconds",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-06T20:16:51+00:00",
+    "files": [
+      "video_app/api/tasks.py",
+      "video_app/api/utils.py",
+      "video_app/tests.py"
+    ],
+    "patch": "diff --git a/video_app/api/tasks.py b/video_app/api/tasks.py\n@@ -17,6 +17,7 @@\n     is_valid_video_extension,\n     STANDARD_VIDEOS_CACHE_KEY,\n     get_ffmpeg_thumbnail_command,\n+    THUMBNAIL_SEEK_FALLBACK,\n )\n \n logger = logging.getLogger(__name__)\n@@ -56,9 +57,8 @@ def _run_thumbnail_command(input_path, output_path, video_instance, output_filen\n     \"\"\"\n     Run ffmpeg to create a thumbnail and save it to the video instance.\n     \"\"\"\n-    command = get_ffmpeg_thumbnail_command(input_path, output_path)\n     try:\n-        subprocess.run(command, check=True)\n+        _run_thumbnail_with_fallback(input_path, output_path, video_instance)\n         with open(output_path, \"rb\") as f:\n             video_instance.thumbnail_url.save(\n                 output_filename, ContentFile(f.read()), save=True\n@@ -70,6 +70,22 @@ def _run_thumbnail_command(input_path, output_path, video_instance, output_filen\n         set_video_failed(video_instance)\n \n \n+def _run_thumbnail_with_fallback(input_path, output_path, video_instance):\n+    \"\"\"\n+    Seek to the default position; if ffmpeg writes nothing (clip too short), retry from the first frame.\n+    \"\"\"\n+    try:\n+        subprocess.run(get_ffmpeg_thumbnail_command(input_path, output_path), check=True)\n+    except subprocess.CalledProcessError as e:\n+        logger.info(\n+            \"Thumbnail for video %s failed (exit code %s), retrying from the first frame.\",\n+            video_instance.pk,\n+            e.returncode,\n+        )\n+        command = get_ffmpeg_thumbnail_command(input_path, output_path, seek=THUMBNAIL_SEEK_FALLBACK)\n+        subprocess.run(command, check=True)\n+\n+\n def _cleanup_temp_thumbnail(output_filename):\n     \"\"\"\n     Remove the temporary thumbnail file if it exists.\ndiff --git a/video_app/api/utils.py b/video_app/api/utils.py\n@@ -51,19 +51,24 @@ def is_valid_video_extension(extension):\n # for both on 2x screens while keeping files small (VFX-64).\n THUMBNAIL_SIZE = (1280, 720)\n THUMBNAIL_QUALITY = \"5\"\n… truncated",
+    "body": ""
+  }
+]
