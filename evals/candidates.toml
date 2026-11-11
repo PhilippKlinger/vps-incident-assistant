@@ -1,0 +1,15 @@
+# Models the full eval runs; edit this table, not the code. The smoke model is the PR-CI check.
+# Sizes: qwen3.5:9b 6.6 GB, qwen2.5-coder:7b 4.7 GB, qwen3.5:4b 3.3 GB.
+
+# Case ids for the PR smoke run; Task 4 fills this once the cases exist.
+smoke_cases = []
+
+[[candidates]]
+model = "qwen3.5:9b-q4_K_M"
+
+[[candidates]]
+model = "qwen2.5-coder:7b-instruct-q4_K_M"
+
+[[candidates]]
+model = "qwen3.5:4b-q4_K_M"
+smoke = true

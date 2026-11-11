@@ -68,3 +68,19 @@ def test_rule_accuracy():
 
     assert rule_accuracy(cases) == 100.0
     assert rule_accuracy([cases[0], wrong]) == 50.0
+
+
+def test_unknown_change_id_is_a_miss_even_when_none_is_expected():
+    _, cases = load_fixture_set()
+
+    result = score(cases[1], Answer("C99", "none"))
+
+    assert result.none_change_ok is False
+
+
+def test_unknown_runbook_id_is_a_miss_even_when_none_is_expected():
+    _, cases = load_fixture_set()
+
+    result = score(cases[1], Answer("none", "vps-edge#invented"))
+
+    assert result.none_runbook_ok is False
