@@ -45,10 +45,10 @@ sequenceDiagram
 
 **Lifecycle.**
 
-- One issue per incident and project. Alerts of the same project within 10 minutes (`merge_window_minutes`) are merged. The state lives in GitHub labels (`incident`, `project:<name>`); the assistant has no storage of its own.
+- One issue per incident and project. While an incident is open, further alerts of the project are added to the same issue. If a resolved issue goes down again within 10 minutes (`merge_window_minutes`), it is reopened; later it becomes a new incident. The state lives in GitHub labels (`incident`, `project:<name>`); the assistant has no storage of its own.
 - The LLM runs once per incident; later alerts become comments with new facts.
 - On "up" the assistant comments with the downtime and adds the label `resolved-pending-review`. It never closes an issue.
-- At most 6 LLM runs per hour (`max_runs_per_hour`); above that only the rule result is posted.
+- At most 6 LLM runs per hour (`max_runs_per_hour`); above that the issue keeps the rule result and gets a comment that the analysis is unavailable because of the limit.
 - Telegram: Kuma reports down and up itself. The assistant sends one message per incident once the analysis is done (without LLM: the issue link with the rule result). Same bot and chat as Kuma.
 
 Issue and Telegram text is German.
@@ -83,7 +83,7 @@ Container hardening: images pinned by digest, `cap_drop: [ALL]`, `no-new-privile
 | `OLLAMA_MODEL` | no | Model name, default `qwen3:8b` (also used by `ollama-pull`) |
 | `ASSISTANT_IMAGE` | no | Overrides the image digest pinned in `compose.yaml` |
 
-The assistant refuses to start if a required variable is missing.
+The assistant exits at startup if a required variable is missing.
 
 ### Projects (`config.toml`)
 
