@@ -1,0 +1,18 @@
+{
+  "id": "app-01-cors",
+  "group": "app",
+  "note": "The API started answering 502 after a backend change.",
+  "event": {"monitor_name": "Videoflix · API", "url": "https://api.example.test/healthz",
+            "status": "down", "msg": "Request failed with status code 502", "time": "2026-11-05T14:03:12+00:00"},
+  "probe": {"status_code": 502, "error": null, "latency_ms": 41, "headers": {"server": "Caddy"},
+            "tls_days_left": 60, "addresses": ["1.2.3.4"]},
+  "history": [{"repo": "PhilippKlinger/vps-edge", "sha": "814a76b1", "minutes_before": 300},
+              {"repo": "PhilippKlinger/vps-edge", "sha": "814a76b2", "minutes_before": 200}],
+  "cause": {"repo": "PhilippKlinger/videoflix-backend", "sha": "abcdef0123456789abcdef0123456789abcdef01",
+            "title": "feat: drop cors header", "author": "PhilippKlinger", "files": ["config/settings.py"],
+            "patch": "diff --git a/config/settings.py b/config/settings.py\n-CORS", "body": "", "minutes_before": 25},
+  "deploy_runs": ["Deploy 2026-11-05 13:40 UTC: success (repository_dispatch, backend)"],
+  "canary": null,
+  "expected": {"category": "upstream_502", "suspected_change": "abcdef0123456789abcdef0123456789abcdef01",
+               "runbook": "vps-edge#upstream-502"}
+}
