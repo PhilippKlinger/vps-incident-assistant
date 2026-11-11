@@ -19,7 +19,7 @@ DIFF_BUDGET = 12000
 FACT_CHARS = 300
 # Length of the marker truncate_patch appends; below this an excerpt is dropped entirely.
 _MIN_EXCERPT = 20
-_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f  ]")
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 
 
 @dataclass(frozen=True)
