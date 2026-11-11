@@ -22,7 +22,7 @@ def _run(case_id, answer, *, valid=True, latency=10.0, unsupported=()):
     return {
         "case_id": case_id,
         "answer": answer,
-        "schema_valid_first": valid,
+        "first_attempt": "valid" if valid else "schema",
         "unavailable": None if answer else "model unreachable",
         "latency_s": latency,
         "cpu_s": 20.0,
@@ -114,6 +114,16 @@ def test_table_has_baseline_and_candidate_columns_with_one_decimal():
     assert "| Mean CPU | n/a | n/a | 20.0 s | 20.0 s |" in text
     assert "| Max RAM | n/a | n/a | 2048.0 MiB | 2048.0 MiB |" in text
     assert "| Change hit | 0.0 % |" in text
+
+
+def test_schema_denominator_and_first_attempt_failures_are_reported():
+    cases = _cases()
+
+    text = render_markdown(build_report(cases, [_good(cases)]))
+
+    assert "Valid schema first try = valid / first attempts that returned a response" in text
+    assert "| First-attempt timeouts | n/a | n/a | 0 |" in text
+    assert "| First-attempt unreachable | n/a | n/a | 0 |" in text
 
 
 def test_rule_accuracy_and_examples_are_listed():

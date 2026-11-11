@@ -59,7 +59,7 @@ def test_valid_answer_is_recorded():
 
     assert run.case_id == "app-01-cors"
     assert run.answer == Answer("C1", "vps-edge#upstream-502")
-    assert run.schema_valid_first is True
+    assert run.first_attempt == "valid"
     assert run.unavailable is None
     assert (run.cpu_s, run.ram_peak_mib) == (4.5, 1234.5)
     assert run.latency_s == 2.0
@@ -73,7 +73,7 @@ def test_invalid_then_valid_answer_is_not_valid_first_try():
 
     run = run_case(cases[0], ollama, NullMeter(), Clock())
 
-    assert run.schema_valid_first is False
+    assert run.first_attempt == "schema"
     assert run.answer == Answer("C1", "vps-edge#upstream-502")
 
 
@@ -84,6 +84,7 @@ def test_unknown_change_id_counts_as_invalid():
     run = run_case(cases[0], ollama, NullMeter(), Clock())
 
     assert (run.answer, run.unavailable) == (None, "invalid response")
+    assert (run.first_attempt, run.rejection) == ("unknown_change", "unknown_change")
 
 
 def test_unreachable_model_is_recorded_and_the_run_continues():
@@ -102,6 +103,7 @@ def test_unreachable_model_is_recorded_and_the_run_continues():
 
     first, second = result["runs"]
     assert (first["answer"], first["unavailable"]) == (None, "model unreachable")
+    assert first["first_attempt"] == "unreachable"
     assert first["latency_s"] >= 0
     assert second["answer"] == {"suspected_change": "none", "runbook": "none"}
     assert len(calls) == 3
@@ -116,7 +118,7 @@ def test_timeout_is_reported_as_timed_out():
     run = run_case(cases[0], _ollama(handler), NullMeter(), Clock())
 
     assert run.unavailable == "model timed out"
-    assert run.schema_valid_first is False
+    assert run.first_attempt == "timed out"
     assert run.latency_s == 2.0  # the clock is read once before and once after both attempts
 
 
@@ -152,6 +154,7 @@ def test_candidate_summary():
     assert result["metrics"]["change_hit"] == 100.0
     assert result["metrics"]["none_change"] == 0.0
     assert result["schema_valid_first_pct"] == 100.0
+    assert (result["first_attempt_timeouts"], result["first_attempt_unreachable"]) == (0, 0)
     assert result["unsupported_count"] == 0
     assert result["latency_p95_s"] >= 0
     assert result["cpu_s_mean"] == 4.5
@@ -261,7 +264,8 @@ def test_missing_cases_count_as_unavailable():
     # app-01-cors answered correctly; none-01-quiet is missing, so wrong.
     assert summary["metrics"]["change_hit"] == 100.0
     assert summary["metrics"]["none_change"] == 0.0
-    assert summary["schema_valid_first_pct"] == 50.0
+    # Only cases that were run count for the schema rate.
+    assert summary["schema_valid_first_pct"] == 100.0
 
 
 def test_run_with_unknown_case_ids_is_rejected():
@@ -282,3 +286,60 @@ def test_canary_is_found_case_insensitively():
     run = run_case(case, ollama, NullMeter(), Clock())
 
     assert run.unsupported == ("canary",)
+
+
+def test_first_attempt_outcomes_are_recorded_per_reason():
+    _, cases = load_fixture_set()
+    bad_runbook = _analysis(runbook="nope#x")
+    bad_evidence = {**_analysis(), "evidence": ["F99"]}
+    for reply, expected in ((bad_runbook, "unknown_runbook"), (bad_evidence, "unknown_evidence")):
+        ollama = _ollama(lambda request, reply=reply: _reply(reply))
+        run = run_case(cases[0], ollama, NullMeter(), Clock())
+        assert run.first_attempt == expected
+
+
+def test_unreachable_first_attempt_then_valid_answer_is_not_valid_first_try():
+    _, cases = load_fixture_set()
+    replies = iter([httpx.ConnectError("refused"), _analysis()])
+
+    def handler(request):
+        item = next(replies)
+        if isinstance(item, Exception):
+            raise item
+        return _reply(item)
+
+    run = run_case(cases[0], _ollama(handler), NullMeter(), Clock())
+
+    assert run.first_attempt == "unreachable"
+    assert run.answer == Answer("C1", "vps-edge#upstream-502")
+
+
+def _summary_runs(*outcomes):
+    return [
+        {
+            "case_id": case_id,
+            "answer": None,
+            "first_attempt": outcome,
+            "unavailable": None,
+            "latency_s": 1.0,
+            "cpu_s": None,
+            "ram_peak_mib": None,
+            "unsupported": [],
+        }
+        for case_id, outcome in zip(("app-01-cors", "none-01-quiet"), outcomes, strict=True)
+    ]
+
+
+def test_schema_rate_excludes_timeouts_and_unreachable_from_the_denominator():
+    _, cases = load_fixture_set()
+
+    summary = candidate_summary(cases, _summary_runs("valid", "timed out"))
+    assert summary["schema_valid_first_pct"] == 100.0
+    assert (summary["first_attempt_timeouts"], summary["first_attempt_unreachable"]) == (1, 0)
+
+    summary = candidate_summary(cases, _summary_runs("schema", "unreachable"))
+    assert summary["schema_valid_first_pct"] == 0.0
+    assert summary["first_attempt_unreachable"] == 1
+
+    summary = candidate_summary(cases, _summary_runs("timed out", "unreachable"))
+    assert summary["schema_valid_first_pct"] == 0.0

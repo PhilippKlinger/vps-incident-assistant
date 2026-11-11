@@ -187,6 +187,10 @@ def _table(report: dict) -> list[str]:
         lines.append(f"| {label} | " + " | ".join(cells) + " |")
     lines += [
         _row("Valid schema first try", None, lambda c: _pct(c["schema_valid_first_pct"]), report),
+        _row("First-attempt timeouts", None, lambda c: str(c["first_attempt_timeouts"]), report),
+        _row(
+            "First-attempt unreachable", None, lambda c: str(c["first_attempt_unreachable"]), report
+        ),
         _row("Unsupported statements", None, lambda c: str(c["unsupported_count"]), report),
         _row("Latency p95", None, lambda c: _optional(c["latency_p95_s"], "s"), report),
         _row("Mean CPU", None, lambda c: _optional(c["cpu_s_mean"], "s"), report),
@@ -205,6 +209,9 @@ def render_markdown(report: dict) -> str:
         f"**{report['verdict']}**",
         "",
         *_table(report),
+        "",
+        "Valid schema first try = valid / first attempts that returned a response; "
+        "timeouts and unreachable are excluded and counted separately.",
         "",
         "CPU and RAM are measured per case and have no threshold.",
         "",
