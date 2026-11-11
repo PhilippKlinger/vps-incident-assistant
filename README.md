@@ -35,7 +35,7 @@ sequenceDiagram
 
 **Rules vs. LLM.** Rules produce category and severity. The LLM never does; it only fills a fixed schema: `suspected_change`, `change_reasoning`, `runbook`, `runbook_reasoning`, `summary`, `evidence` and `confidence`. Runs use `temperature: 0`, thinking off, the schema as `format`, a 300 s timeout and one retry.
 
-**Facts.** Every fact gets an ID (`F1`, `F2` ...), every change an ID (`C1` ... with repo and SHA), every runbook section an anchor (for example `vps-edge#troubleshooting-502`).
+**Facts.** Every fact gets an ID (`F1`, `F2` ...), every change an ID (`C1` ... with repo and SHA), every runbook section an anchor (for example `vps-edge#upstream-502`).
 
 - Outside view: the Kuma payload plus the assistant's own check of the URL (HTTP status, selected headers, response time, TLS expiry, DNS).
 - Deploy context: per repo the commits of the last 72 hours (at most 10), changed files, shortened diffs (2000 characters per change, 12000 in total) and the latest runs of the deploy workflow.
@@ -117,7 +117,7 @@ The stack lives in `/srv/incident` next to the other stacks. `compose.yaml` pins
 
    ```bash
    cd /srv/incident
-   install -d -o 1000 -g 1000 models
+   sudo install -d -o 1000 -g 1000 models
    ```
 
 3. Pull the images and download the model once. Only the one-off `ollama-pull` service (profile `setup`) has internet access; the running Ollama never does.
