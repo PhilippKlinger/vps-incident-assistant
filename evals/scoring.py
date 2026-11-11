@@ -25,9 +25,14 @@ class Metrics:
     none_runbook: float
 
 
+def _resolve(case: Case, change_id: str) -> str | None:
+    # An id the model invented resolves to nothing, so it can never count as a correct "none".
+    return NONE if change_id == NONE else case.change_shas.get(change_id)
+
+
 def score(case: Case, answer: Answer | None) -> CaseScore:
     # An unavailable answer (None) is wrong on every applicable field.
-    change = case.change_shas.get(answer.suspected_change, NONE) if answer else None
+    change = _resolve(case, answer.suspected_change) if answer else None
     runbook = answer.runbook if answer else None
     expected = case.expected
     expects_change = expected.suspected_change != NONE
