@@ -38,6 +38,7 @@ from assistant.telegram import TelegramError
 log = logging.getLogger(__name__)
 
 LIMIT_REASON = "Stundenlimit erreicht"
+INTERNAL_REASON = "interner Fehler"
 
 # Kuma sends the Web-App and API alarms almost at once; without this lock both would
 # find no open issue and create one each.
@@ -143,6 +144,14 @@ def _notify(deps: Deps, text: str) -> None:
         log.warning("telegram failed: %s", error)
 
 
+def _comment_unavailable(number: int, reason: str, deps: Deps) -> None:
+    # Best effort: "Analyse folgt" should not stay without an answer.
+    try:
+        deps.issues.comment(number, unavailable_comment(reason))
+    except IssueUnavailable as error:
+        log.error("%s during analysis comment", type(error).__name__)
+
+
 def _comment_analysis(job: _FollowUp, deps: Deps) -> Analysis | None:
     """Run the LLM and post its comment; failures are logged and never block Telegram."""
     started = time.monotonic()
@@ -165,6 +174,8 @@ def _comment_analysis(job: _FollowUp, deps: Deps) -> Analysis | None:
         log.error("%s during analysis comment", type(error).__name__)
     except Exception as error:
         log.exception("analysis step failed: %s", type(error).__name__)
+        reason = INTERNAL_REASON
+        _comment_unavailable(job.number, reason, deps)
     if job.run_llm or job.limited:
         suffix = f" unavailable={reason}" if reason else ""
         _log_step(Action.CREATE, job.number, started, f" llm=done{suffix}")

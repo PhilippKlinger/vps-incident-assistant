@@ -392,3 +392,40 @@ def test_analyze_error_still_sends_one_telegram(monkeypatch, caplog):
     handle_event(_event(), s.deps)
     assert len(s.telegram) == 1
     assert "KeyError" in caplog.text
+
+
+def test_analyze_error_resolves_analysis_pending(monkeypatch, caplog):
+    s = Setup()
+
+    def broken(ctx, ollama):
+        raise KeyError("bug")
+
+    monkeypatch.setattr("assistant.pipeline.analyze", broken)
+    handle_event(_event(), s.deps)
+    comments = s.store.calls("POST", "/comments")
+    assert [c["body"] for c in comments] == [
+        "Analyse nicht verfügbar: interner Fehler. Es gilt das Regel-Ergebnis oben."
+    ]
+    assert len(s.telegram) == 1
+
+
+def test_analyze_error_with_failing_comment_still_sends_telegram(monkeypatch, caplog):
+    s = Setup()
+    original = s.store.handler
+
+    def handler(request):
+        if request.method == "POST" and request.url.path.endswith("/comments"):
+            return httpx.Response(500)
+        return original(request)
+
+    def broken(ctx, ollama):
+        raise KeyError("bug")
+
+    monkeypatch.setattr("assistant.pipeline.analyze", broken)
+    s.deps.issues = IssueClient(
+        httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler)),
+        REPO,
+    )
+    handle_event(_event(), s.deps)
+    assert len(s.telegram) == 1
+    assert "KeyError" in caplog.text and "IssueUnavailable" in caplog.text
