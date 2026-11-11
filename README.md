@@ -135,11 +135,11 @@ The stack lives in `/srv/incident` next to the other stacks. `compose.yaml` pins
    ```
 
 5. In Uptime Kuma add a webhook notification to `http://incident-assistant:8080/webhook/kuma` with the header `X-Webhook-Secret`, and press *Test*. The assistant log shows `ignored` for the test event. Create the monitor `Statusseite` if it does not exist yet.
-6. Check Ollama's limits: during one run `docker stats` shows Ollama within 8 GiB and 2 CPUs, and five minutes later the model is unloaded (`docker compose exec ollama ollama ps` is empty).
+6. Check Ollama's limits: during one run with the configured context of 16384 tokens `docker stats` shows Ollama within 8 GiB and 2 CPUs, and five minutes later the model is unloaded (`docker compose exec ollama ollama ps` is empty).
 
 A new model goes the same way: change `OLLAMA_MODEL` in `.env` and repeat the `ollama-pull` step.
 
-Resources: the assistant gets 256 MB and 0.5 CPU. Ollama gets `cpus: 2`, `mem_limit: 8g` and a low `cpu_shares`, keeps one model loaded (`OLLAMA_MAX_LOADED_MODELS=1`), handles one request at a time (`OLLAMA_NUM_PARALLEL=1`) and unloads the model after 5 minutes (`OLLAMA_KEEP_ALIVE=5m`). If Ollama exceeds the limit, the kernel stops only Ollama.
+Resources: the assistant gets 256 MB and 0.5 CPU. Ollama gets `cpus: 2`, `mem_limit: 8g` and a low `cpu_shares`, keeps one model loaded (`OLLAMA_MAX_LOADED_MODELS=1`), handles one request at a time (`OLLAMA_NUM_PARALLEL=1`) with a context of 16384 tokens (`OLLAMA_CONTEXT_LENGTH`, the prompt is sized for it; the KV cache counts towards the memory limit) and unloads the model after 5 minutes (`OLLAMA_KEEP_ALIVE=5m`). If Ollama exceeds the limit, the kernel stops only Ollama.
 
 ## Limits
 
