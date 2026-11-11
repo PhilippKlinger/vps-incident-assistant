@@ -100,12 +100,25 @@ def _run(args: argparse.Namespace) -> int:
     return 1 if problem else 0
 
 
+def _latency_runs(specs: list[str]) -> dict[str, dict]:
+    found = {}
+    for spec in specs:
+        model, sep, path = spec.rpartition("=")
+        if not sep or not model or not path:
+            raise SystemExit(f"--latency-run expects MODEL=FILE, got: {spec}")
+        try:
+            found[model] = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise SystemExit(f"Cannot read latency run {path}: {type(exc).__name__}") from None
+    return found
+
+
 def _report(args: argparse.Namespace) -> int:
     if not args.runs or not args.out_dir:
         raise SystemExit("report needs --runs and --out-dir")
     _, cases = _load(args)
     runs = [json.loads(path.read_text(encoding="utf-8")) for path in args.runs]
-    report = build_report(cases, runs)
+    report = build_report(cases, runs, _latency_runs(args.latency_run))
     args.out_dir.mkdir(parents=True, exist_ok=True)
     (args.out_dir / "report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     (args.out_dir / "report.md").write_text(render_markdown(report), encoding="utf-8")
@@ -150,6 +163,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path)
     parser.add_argument("--runs", type=Path, nargs="+")
     parser.add_argument("--out-dir", type=Path)
+    parser.add_argument("--latency-run", action="append", default=[], metavar="MODEL=FILE")
     args = parser.parse_args(argv)
     commands = {
         "check": _check,
