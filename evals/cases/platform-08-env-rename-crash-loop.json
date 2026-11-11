@@ -13,9 +13,7 @@
     "status_code": 502,
     "error": null,
     "latency_ms": 3,
-    "headers": {
-      "server": "Caddy"
-    },
+    "headers": {},
     "tls_days_left": 76,
     "addresses": [
       "203.0.113.10"
