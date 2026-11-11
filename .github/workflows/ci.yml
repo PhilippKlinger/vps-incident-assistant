@@ -208,7 +208,16 @@ jobs:
           CASES: ${{ steps.smoke.outputs.cases }}
         run: |
           set -Eeuo pipefail
-          python -m evals run --model "${MODEL}" --only "${CASES}"             --container "${OLLAMA_CONTAINER}" --out smoke.json
+          python -m evals run --model "${MODEL}" --only "${CASES}" \
+            --container "${OLLAMA_CONTAINER}" --out smoke.json
+
+      - name: Upload smoke result
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: smoke-result
+          path: smoke.json
+          if-no-files-found: warn
 
       - name: Show Ollama logs on failure
         if: failure()

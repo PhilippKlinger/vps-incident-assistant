@@ -24,6 +24,7 @@ from evals.scoring import score, summarize
 
 ATTEMPTS = 2
 PRODUCTION_TIMEOUT_S = 300
+NA = "n/a"
 CANARY_LEN = 1000
 FORBIDDEN = ("http://", "https://", "www.", "@", "<", "![")
 
@@ -165,13 +166,36 @@ def _write_atomic(path: Path, result: dict) -> None:
     os.replace(temp, path)
 
 
+def describe_run(run: dict) -> str:
+    # One progress line per case, so a CI log shows whether the model answered at all.
+    answer = run["answer"]
+    shown = (
+        f"{answer['suspected_change']} {answer['runbook']}"
+        if answer
+        else f"unavailable ({run['unavailable']})"
+    )
+    cpu = NA if run["cpu_s"] is None else f"{run['cpu_s']:.1f}s"
+    ram = NA if run["ram_peak_mib"] is None else f"{run['ram_peak_mib']:.0f}MiB"
+    return (
+        f"{run['case_id']} {shown} {run['latency_s']:.1f}s {run['first_attempt']} "
+        f"cpu {cpu} ram {ram}"
+    )
+
+
 def run_candidate(
-    cases: list[Case], ollama: OllamaClient, meter, model: str, out: Path | None = None
+    cases: list[Case],
+    ollama: OllamaClient,
+    meter,
+    model: str,
+    out: Path | None = None,
+    on_case: Callable[[dict], None] | None = None,
 ) -> dict:
     runs: list[dict] = []
     result: dict = {}
     for case in cases:
         runs.append(asdict(run_case(case, ollama, meter)))
+        if on_case:
+            on_case(runs[-1])
         result = {"model": model, "runs": runs, **candidate_summary(cases, runs)}
         # A full run takes hours; keep what is done if the job dies.
         if out:

@@ -425,3 +425,85 @@ def test_finished_run_file_holds_every_case(tmp_path):
     result = run_candidate(cases, _ollama(lambda r: _reply(_analysis())), NullMeter(), "m", out=out)
 
     assert json.loads(out.read_text(encoding="utf-8")) == json.loads(json.dumps(result))
+
+
+def test_cli_run_prints_one_line_per_case(tmp_path, monkeypatch, capsys):
+    _patch_client(monkeypatch, lambda request: _reply(_analysis()))
+
+    _main("run", "--model", "m", "--out", str(tmp_path / "run.json"), "--container", "")
+
+    lines = capsys.readouterr().out.splitlines()
+    tokens = lines[0].split()
+    assert tokens[:3] == ["app-01-cors", "C1", "vps-edge#upstream-502"]
+    assert tokens[3].endswith("s")
+    assert tokens[4:] == ["valid", "cpu", "n/a", "ram", "n/a"]
+    assert lines[1].startswith("none-01-quiet ")
+    assert lines[2].endswith("results in " + str(tmp_path / "run.json"))
+
+
+def test_cli_run_line_names_the_reason_for_an_unavailable_case(tmp_path, monkeypatch, capsys):
+    _patch_client(monkeypatch, lambda request: _reply("not json"))
+
+    _main("run", "--model", "m", "--only", "app-01-cors", "--out", str(tmp_path / "run.json"))
+
+    line = capsys.readouterr().out.splitlines()[0]
+    assert "unavailable (invalid response)" in line
+    assert "schema" in line
+
+
+def _patch_client(monkeypatch, handler):
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr("evals.__main__._client", lambda: client)
+
+
+def _exit_code(tmp_path, monkeypatch, handler):
+    _patch_client(monkeypatch, handler)
+    return _main("run", "--model", "m", "--out", str(tmp_path / "run.json"))
+
+
+def test_exit_code_is_zero_for_a_clean_run(tmp_path, monkeypatch):
+    assert _exit_code(tmp_path, monkeypatch, lambda request: _reply(_analysis())) == 0
+
+
+def test_exit_code_fails_on_an_unsupported_statement(tmp_path, monkeypatch):
+    reply = _reply(_analysis(summary="Open https:// now."))
+
+    assert _exit_code(tmp_path, monkeypatch, lambda request: reply) == 1
+
+
+def test_exit_code_fails_when_the_model_is_unreachable(tmp_path, monkeypatch):
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        if len(calls) <= 2:
+            raise httpx.ConnectError("refused")
+        return _reply(_analysis())
+
+    assert _exit_code(tmp_path, monkeypatch, handler) == 1
+
+
+def test_exit_code_fails_when_every_case_is_unavailable(tmp_path, monkeypatch):
+    assert _exit_code(tmp_path, monkeypatch, lambda request: _reply("not json")) == 1
+
+
+def test_exit_code_tolerates_an_invalid_response_next_to_an_answer(tmp_path, monkeypatch):
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return _reply(_analysis() if len(calls) == 1 else "not json")
+
+    assert _exit_code(tmp_path, monkeypatch, handler) == 0
+
+
+def test_exit_code_tolerates_a_timeout_next_to_an_answer(tmp_path, monkeypatch):
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        if len(calls) > 1:
+            raise httpx.ReadTimeout("slow")
+        return _reply(_analysis())
+
+    assert _exit_code(tmp_path, monkeypatch, handler) == 0

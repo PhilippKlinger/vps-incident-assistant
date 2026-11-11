@@ -16,7 +16,7 @@ from evals.check import check_set
 from evals.freeze import freeze
 from evals.meter import DockerMeter, NullMeter
 from evals.report import build_report, render_markdown
-from evals.runner import PRODUCTION_TIMEOUT_S, run_candidate
+from evals.runner import PRODUCTION_TIMEOUT_S, describe_run, run_candidate
 from evals.scoring import rule_accuracy, score, summarize
 
 HERE = Path(__file__).parent
@@ -58,6 +58,18 @@ def _client() -> httpx.Client:
     return httpx.Client()
 
 
+def _run_problem(runs: list[dict]) -> str | None:
+    # Timeouts and invalid answers are model behaviour and show up in the report;
+    # the rest points at the harness or the setup.
+    if any(run["unsupported"] for run in runs):
+        return "unsupported statement in a published comment"
+    if any(run["unavailable"] == "model unreachable" for run in runs):
+        return "model unreachable"
+    if all(run["unavailable"] for run in runs):
+        return "no case produced an answer"
+    return None
+
+
 def _run(args: argparse.Namespace) -> int:
     if not args.model or not args.out:
         raise SystemExit("run needs --model and --out")
@@ -70,9 +82,14 @@ def _run(args: argparse.Namespace) -> int:
         cases = [case for case in cases if case.id in wanted]
     ollama = OllamaClient(_client(), args.ollama_url, args.model, args.timeout)
     meter = DockerMeter(args.container) if args.container else NullMeter()
-    run_candidate(cases, ollama, meter, args.model, out=args.out)
+    result = run_candidate(
+        cases, ollama, meter, args.model, out=args.out, on_case=lambda r: print(describe_run(r))
+    )
     print(f"{args.model}: {len(cases)} cases, results in {args.out}")
-    return 0
+    problem = _run_problem(result["runs"])
+    if problem:
+        print(f"FAILED: {problem}", file=sys.stderr)
+    return 1 if problem else 0
 
 
 def _report(args: argparse.Namespace) -> int:
