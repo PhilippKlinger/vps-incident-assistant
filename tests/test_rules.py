@@ -15,8 +15,8 @@ def _event(url="https://videoflix.example/", status="down"):
     )
 
 
-def _probe(status=None, error=None, days=60, addresses=("1.2.3.4",)):
-    return ProbeResult(status, error, 20 if status else None, {}, days, addresses)
+def _probe(status=None, error=None, days=60, addresses=("1.2.3.4",), headers=None):
+    return ProbeResult(status, error, 20 if status else None, headers or {}, days, addresses)
 
 
 def test_classify_dns():
@@ -59,6 +59,32 @@ def test_classify_upstream_502():
         result = classify(_event(), _probe(status=code))
         assert (result.category, result.severity) == (Category.upstream_502, Severity.high)
     assert "502" in classify(_event(), _probe(status=502)).reason
+
+
+def test_proxy_502_without_body_is_upstream():
+    result = classify(_event(), _probe(status=502, headers={}))
+    assert (result.category, result.severity) == (Category.upstream_502, Severity.high)
+    assert result.reason == (
+        "The URL returned HTTP 502; the proxy could not reach the upstream application."
+    )
+
+
+def test_504_without_body_is_upstream():
+    assert classify(_event(), _probe(status=504, headers={})).category == Category.upstream_502
+
+
+def test_health_endpoint_503_json_is_health_degraded():
+    event = _event(url="https://videoflix.example/api/health/")
+    probe = _probe(status=503, headers={"content-type": "application/json; charset=utf-8"})
+    result = classify(event, probe)
+    assert (result.category, result.severity) == (Category.health_degraded, Severity.high)
+    assert result.reason == "The health endpoint reported unhealthy with HTTP 503."
+
+
+def test_app_503_html_is_app_error():
+    result = classify(_event(), _probe(status=503, headers={"content-type": "text/html"}))
+    assert (result.category, result.severity) == (Category.app_error, Severity.high)
+    assert result.reason == "The application returned HTTP 503."
 
 
 def test_classify_app_error():

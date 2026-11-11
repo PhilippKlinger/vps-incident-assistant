@@ -66,10 +66,26 @@ def classify(event: KumaEvent, probe: ProbeResult | None) -> RuleResult:
         )
     code = probe.status_code
     if code in (502, 503, 504):
+        # The edge strips the Server header, so the body type tells who answered:
+        # the proxy's own error response has no content-type, the app sends JSON or HTML.
+        media_type = probe.headers.get("content-type", "").split(";")[0].strip().lower()
+        if not media_type:
+            return RuleResult(
+                Category.upstream_502,
+                Severity.high,
+                f"The URL returned HTTP {code}; "
+                "the proxy could not reach the upstream application.",
+            )
+        if (event.url or "").endswith("/api/health/") and media_type == "application/json":
+            return RuleResult(
+                Category.health_degraded,
+                Severity.high,
+                f"The health endpoint reported unhealthy with HTTP {code}.",
+            )
         return RuleResult(
-            Category.upstream_502,
+            Category.app_error,
             Severity.high,
-            f"The URL returned HTTP {code}; the proxy could not reach the upstream application.",
+            f"The application returned HTTP {code}.",
         )
     if code is not None and code >= 500:
         return RuleResult(
