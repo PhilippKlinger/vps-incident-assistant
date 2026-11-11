@@ -1,0 +1,75 @@
+{
+  "id": "app-04-health-queue-age-crash",
+  "group": "app",
+  "note": "The new health field reads created instead of created_at, which only runs while a video is processing, so the smoke test passed and the health check returned 500 once a demo user uploaded a video.",
+  "event": {
+    "monitor_name": "Videoflix · API",
+    "url": "https://videoflix.philipp-klinger.com/api/health/",
+    "status": "down",
+    "msg": "Request failed with status code 500",
+    "time": "2026-11-16T11:05:33+00:00"
+  },
+  "probe": {
+    "status_code": 500,
+    "error": null,
+    "latency_ms": 64,
+    "headers": {
+      "content-type": "text/html; charset=utf-8"
+    },
+    "tls_days_left": 79,
+    "addresses": [
+      "203.0.113.10"
+    ]
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "5dbf40d2",
+      "minutes_before": 300
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-frontend",
+      "sha": "85ecc765",
+      "minutes_before": 200
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "41e832ec",
+      "minutes_before": 590
+    },
+    {
+      "repo": "PhilippKlinger/vps-edge",
+      "sha": "492d8cd5",
+      "minutes_before": 1500
+    },
+    {
+      "repo": "PhilippKlinger/vps-monitoring",
+      "sha": "4132b492",
+      "minutes_before": 1300
+    }
+  ],
+  "cause": {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "c1ecf92112eba5a7ae23a271f42b917a11688d9c",
+    "title": "feat: report the oldest waiting conversion in the health check",
+    "author": "Philipp Klinger",
+    "files": [
+      "core/health.py",
+      "core/tests.py"
+    ],
+    "patch": "diff --git a/core/health.py b/core/health.py\n@@ -8,6 +8,8 @@ from django.core.cache import cache\n from django.db import connection\n from rest_framework import status, views\n from rest_framework.permissions import AllowAny\n from rest_framework.response import Response\n+from django.utils import timezone\n+from video_app.models import Video\n \n logger = logging.getLogger(__name__)\n \n@@ -27,7 +29,11 @@ class HealthView(views.APIView):\n     def get(self, request):\n         checks = {\"database\": _check_database(), \"cache\": _check_cache()}\n         healthy = all(result == \"ok\" for result in checks.values())\n-        body = {\"status\": \"ok\" if healthy else \"error\", **checks}\n+        body = {\n+            \"status\": \"ok\" if healthy else \"error\",\n+            **checks,\n+            \"oldest_processing_seconds\": _oldest_processing_seconds(),\n+        }\n         code = status.HTTP_200_OK if healthy else status.HTTP_503_SERVICE_UNAVAILABLE\n         return Response(body, status=code)\n \n@@ -66,3 +72,12 @@ def _check_cache():\n     except Exception:\n         logger.exception(\"Health check: cache not reachable\")\n         return \"error\"\n+\n+\n+def _oldest_processing_seconds():\n+    \"\"\"Age of the oldest video still being converted; 0 if none is waiting.\"\"\"\n+    oldest = Video.objects.filter(status=\"processing\").order_by(\"created_at\").first()\n+    if oldest is None:\n+        return 0\n+    return int((timezone.now() - oldest.created).total_seconds())\ndiff --git a/core/tests.py b/core/tests.py\n@@ -98,6 +98,11 @@ class HealthEndpointTests(APITestCase):\n         self.assertEqual(response.status_code, 503)\n         self.assertEqual(response.data[\"cache\"], \"error\")\n \n+    def test_reports_no_waiting_conversion(self):\n+        response = self.client.get(\"/api/health/\")\n+        self.assertEqual(response.status_code, 200)\n+        self.assertEqual(response.data[\"oldest_processing_seconds\"], 0)\n+",
+    "body": "A stuck worker was only visible in the RQ dashboard. The health response now\nsays how long the oldest video has been processing, so the monitors can show\na growing queue before users notice it.",
+    "minutes_before": 610
+  },
+  "deploy_runs": [
+    "Deploy 2026-11-16 07:53 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-16 06:13 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-16 01:05 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "app_error",
+    "suspected_change": "c1ecf92112eba5a7ae23a271f42b917a11688d9c",
+    "runbook": "videoflix-deploy#api-5xx"
+  }
+}

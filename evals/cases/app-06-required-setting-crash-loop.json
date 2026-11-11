@@ -1,0 +1,71 @@
+{
+  "id": "app-06-required-setting-crash-loop",
+  "group": "app",
+  "note": "The backend now refuses to start without STREAM_URL_SECRET, which the server's .env does not have, so web crash-loops right after the deploy started and Caddy answers 502.",
+  "event": {
+    "monitor_name": "Videoflix · API",
+    "url": "https://videoflix.philipp-klinger.com/api/health/",
+    "status": "down",
+    "msg": "Request failed with status code 502",
+    "time": "2026-11-18T09:31:10+00:00"
+  },
+  "probe": {
+    "status_code": 502,
+    "error": null,
+    "latency_ms": 4,
+    "headers": {
+      "server": "Caddy"
+    },
+    "tls_days_left": 77,
+    "addresses": [
+      "203.0.113.10"
+    ]
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "00c3d523",
+      "minutes_before": 140
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "d5fca28f",
+      "minutes_before": 400
+    },
+    {
+      "repo": "PhilippKlinger/vps-edge",
+      "sha": "34110dcc",
+      "minutes_before": 2000
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-frontend",
+      "sha": "caccf5d7",
+      "minutes_before": 800
+    }
+  ],
+  "cause": {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "ade1aa6d034ea52a29c84630ab05a5576de91848",
+    "title": "feat: sign stream urls with their own secret",
+    "author": "Philipp Klinger",
+    "files": [
+      ".github/workflows/ci.yml",
+      "core/settings.py",
+      "video_app/api/views.py"
+    ],
+    "patch": "diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\n@@ -70,6 +70,7 @@ jobs:\n       DB_HOST: localhost\n       DB_PASSWORD: videoflix\n       SECRET_KEY: ci-only-secret\n+      STREAM_URL_SECRET: ci-only-stream-secret\n       REDIS_HOST: localhost\n \n     steps:\ndiff --git a/core/settings.py b/core/settings.py\n@@ -21,6 +21,12 @@ SECRET_KEY = os.getenv(\"SECRET_KEY\")\n if not SECRET_KEY:\n     raise RuntimeError(\"SECRET_KEY must be set via environment variable\")\n \n+# Signs HLS segment URLs (video_app.api.views); separate from SECRET_KEY on purpose.\n+STREAM_URL_SECRET = os.getenv(\"STREAM_URL_SECRET\")\n+if not STREAM_URL_SECRET:\n+    raise RuntimeError(\"STREAM_URL_SECRET must be set via environment variable\")\n+STREAM_URL_LIFETIME_SECONDS = int(os.getenv(\"STREAM_URL_LIFETIME_SECONDS\", \"300\"))\n+\n DEBUG = env_bool(\"DEBUG\", \"False\")\n \ndiff --git a/video_app/api/views.py b/video_app/api/views.py\n@@ -217,6 +217,8 @@ class VideoHLSServeView(views.APIView):\n     def get(self, request, video_id, resolution, filename):\n         video = _get_video_or_404(request.user, video_id)\n         video_res = _get_video_resolution_or_404(video, resolution)\n+        if not _valid_signature(request, video_id, resolution, filename):\n+            raise PermissionDenied(\"Invalid or expired stream link.\")\n         base_dir = os.path.dirname(video_res.converted_file.path)\n         file_path = _get_hls_file_path(base_dir, filename)\n         content_type = _get_content_type(filename)",
+    "body": "Segment URLs were only protected by the session cookie. They now carry an HMAC\nsignature with a short lifetime. The key is a separate secret, so a leaked\nSECRET_KEY does not open the streams as well.",
+    "minutes_before": 16
+  },
+  "deploy_runs": [
+    "Deploy 2026-11-18 09:24 UTC: in_progress (repository_dispatch, image-published)",
+    "Deploy 2026-11-18 07:19 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-17 20:19 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "upstream_502",
+    "suspected_change": "ade1aa6d034ea52a29c84630ab05a5576de91848",
+    "runbook": "videoflix-deploy#web-crash-loop"
+  }
+}

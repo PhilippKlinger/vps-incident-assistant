@@ -1,0 +1,68 @@
+{
+  "id": "platform-04-edge-trailing-slash-loop",
+  "group": "platform",
+  "note": "The new site-level rule strips the trailing slash that Django's APPEND_SLASH adds back, so /api/health/ redirects in a loop; no runbook section covers redirect loops.",
+  "event": {
+    "monitor_name": "Videoflix · API",
+    "url": "https://videoflix.philipp-klinger.com/api/health/",
+    "status": "down",
+    "msg": "Maximum number of redirects exceeded",
+    "time": "2026-11-15T12:20:16+00:00"
+  },
+  "probe": {
+    "status_code": 301,
+    "error": null,
+    "latency_ms": 48,
+    "headers": {
+      "content-type": "text/html; charset=utf-8"
+    },
+    "tls_days_left": 80,
+    "addresses": [
+      "203.0.113.10"
+    ]
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "e2eb140c",
+      "minutes_before": 150
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "47b2b943",
+      "minutes_before": 60
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-frontend",
+      "sha": "0b3ae322",
+      "minutes_before": 900
+    },
+    {
+      "repo": "PhilippKlinger/vps-monitoring",
+      "sha": "21ae80ac",
+      "minutes_before": 2000
+    }
+  ],
+  "cause": {
+    "repo": "PhilippKlinger/vps-edge",
+    "sha": "275000f0c1bda8ab76b70b25f8d7c26070ded16e",
+    "title": "feat: serve app routes without a trailing slash",
+    "author": "Philipp Klinger",
+    "files": [
+      "sites/videoflix.caddy"
+    ],
+    "patch": "diff --git a/sites/videoflix.caddy b/sites/videoflix.caddy\n@@ -4,6 +4,11 @@ videoflix.philipp-klinger.com {\n \timport security_headers\n \tencode zstd gzip\n \n+\t# One URL per page: /browse/ and /browse are the same route of the app,\n+\t# so the trailing slash is dropped before routing\n+\t@trailing path_regexp ^(.+)/$\n+\turi @trailing strip_suffix /\n+\n \t# Everything Django serves: API (incl. HLS streams), admin, its static files and API docs\n \t@backend path /api/* /admin/* /static/* /swagger/* /redoc/*\n \thandle @backend {",
+    "body": "",
+    "minutes_before": 210
+  },
+  "deploy_runs": [
+    "Deploy 2026-11-15 09:58 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-14 21:28 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "unknown",
+    "suspected_change": "275000f0c1bda8ab76b70b25f8d7c26070ded16e",
+    "runbook": "none"
+  }
+}
