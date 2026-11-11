@@ -334,3 +334,16 @@ def test_no_unavailable_section_rows_when_every_case_has_an_answer():
     text = render_markdown(_build(cases, [_good(cases)]))
 
     assert "No case was unavailable." in text
+
+
+def test_valid_schema_rate_shows_k_over_n_without_timeouts_and_unreachable():
+    cases = _cases()
+    runs = [
+        _run("app-01-cors", {"suspected_change": "C2", "runbook": "vps-edge#proxy-down"}),
+        _run("none-01-quiet", {"suspected_change": "none", "runbook": "none"}, valid=False),
+    ]
+
+    report = _build(cases, [_candidate(cases, "m:1b", runs)])
+
+    assert report["candidates"][0]["schema_counts"] == {"k": 1, "n": 2}
+    assert "| Valid schema first try | n/a | n/a | 50.0 % (1/2) |" in render_markdown(report)

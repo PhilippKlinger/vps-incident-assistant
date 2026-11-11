@@ -211,6 +211,9 @@ def build_report(
     for run in runs:
         candidate = {**run, **candidate_summary(cases, run["runs"])}
         candidate.update(_detail(_run_scores(cases, run["runs"])))
+        outcomes = [r["first_attempt"] for r in run["runs"]]
+        responded = len(outcomes) - outcomes.count("timed out") - outcomes.count("unreachable")
+        candidate["schema_counts"] = {"k": outcomes.count("valid"), "n": responded}
         candidate["unavailable_reasons"] = dict(
             Counter(r["unavailable"] for r in run["runs"] if r["unavailable"])
         )
@@ -285,7 +288,12 @@ def _table(report: dict) -> list[str]:
     lines += [
         _row("Model digest", None, lambda c: c.get("model_digest") or NA, report),
         _row("Ollama version", None, lambda c: c.get("ollama_version") or NA, report),
-        _row("Valid schema first try", None, lambda c: _pct(c["schema_valid_first_pct"]), report),
+        _row(
+            "Valid schema first try",
+            None,
+            lambda c: _rate(c["schema_valid_first_pct"], c["schema_counts"]),
+            report,
+        ),
         _row("First-attempt timeouts", None, lambda c: str(c["first_attempt_timeouts"]), report),
         _row(
             "First-attempt unreachable", None, lambda c: str(c["first_attempt_unreachable"]), report
