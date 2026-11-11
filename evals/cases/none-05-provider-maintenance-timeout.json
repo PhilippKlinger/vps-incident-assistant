@@ -1,7 +1,7 @@
 {
   "id": "none-05-provider-maintenance-timeout",
   "group": "none",
-  "note": "A maintenance on the provider's host node stalled the VPS for about a minute, so Kuma's check timed out; the site answers again, no change touches the app shell and no runbook section covers provider incidents.",
+  "note": "A maintenance on the provider's host node stalled the VPS for a few minutes, so Kuma's check timed out; the site answers again, no change touches the app shell and no runbook section covers provider incidents.",
   "event": {
     "monitor_name": "Videoflix · Web-App",
     "url": "https://videoflix.philipp-klinger.com/",

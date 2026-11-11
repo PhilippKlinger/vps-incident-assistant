@@ -1,7 +1,7 @@
 {
   "id": "platform-02-edge-staging-ca",
   "group": "platform",
-  "note": "The global acme_ca option switched Caddy to the Let's Encrypt staging CA, so after the restart it served untrusted staging certificates; a later frontend deploy failed its smoke test for the same reason.",
+  "note": "The global acme_ca option switched Caddy to the Let's Encrypt staging CA, so after the restart it served untrusted staging certificates; a frontend deploy started right after the restart failed its smoke test for the same reason.",
   "event": {
     "monitor_name": "Videoflix · Web-App",
     "url": "https://videoflix.philipp-klinger.com/",
@@ -23,12 +23,12 @@
     {
       "repo": "PhilippKlinger/videoflix-frontend",
       "sha": "85ecc765",
-      "minutes_before": 60
+      "minutes_before": 13
     },
     {
       "repo": "PhilippKlinger/vps-monitoring",
       "sha": "63493095",
-      "minutes_before": 30
+      "minutes_before": 4
     },
     {
       "repo": "PhilippKlinger/videoflix-deploy",
@@ -56,10 +56,10 @@
     ],
     "patch": "diff --git a/Caddyfile b/Caddyfile\n@@ -1,5 +1,8 @@\n {\n \temail {$ACME_EMAIL}\n+\t# Staging CA while new site names are tested: failed attempts do not count\n+\t# against the production rate limit of Let's Encrypt\n+\tacme_ca https://acme-staging-v02.api.letsencrypt.org/directory\n \t# The admin API is not needed: configuration changes go through a container restart\n \tadmin off\n }",
     "body": "",
-    "minutes_before": 130
+    "minutes_before": 10
   },
   "deploy_runs": [
-    "Deploy 2026-11-13 06:20 UTC: failure (repository_dispatch, image-published)",
+    "Deploy 2026-11-13 07:07 UTC: failure (repository_dispatch, image-published)",
     "Deploy 2026-11-12 19:40 UTC: success (repository_dispatch, image-published)"
   ],
   "canary": null,

@@ -1,7 +1,7 @@
 {
   "id": "app-10-nginx-upstream-host",
   "group": "app",
-  "note": "The new /api/ proxy block names the host web, which only exists in the local compose network; in production nginx refuses to start, so Caddy returns 502 for the web app while the API keeps working.",
+  "note": "The new /api/ proxy block names the host web-prod, which only exists in the backend's local compose stack; in production nginx refuses to start, so Caddy returns 502 for the web app while the API keeps working.",
   "event": {
     "monitor_name": "Videoflix · Web-App",
     "url": "https://videoflix.philipp-klinger.com/",
@@ -56,7 +56,7 @@
     "files": [
       "nginx.conf"
     ],
-    "patch": "diff --git a/nginx.conf b/nginx.conf\n@@ -29,6 +29,15 @@ server {\n     # Must always show the running build; 404 instead of the app when it is missing.\n     location = /version.json { expires -1; try_files $uri =404; }\n \n+    # Same routes as proxy.conf.json, so the image also runs next to the backend stack\n+    # without Caddy (local E2E runs). In production Caddy answers these paths first.\n+    location /api/ {\n+        proxy_pass http://web:8000;\n+        proxy_set_header Host $host;\n+        proxy_set_header X-Forwarded-Proto $scheme;\n+        client_max_body_size 55m;\n+    }\n+\n     # Single-page app: unknown paths fall back to index.html.\n     location / { try_files $uri $uri/ /index.html; }\n }",
+    "patch": "diff --git a/nginx.conf b/nginx.conf\n@@ -29,6 +29,15 @@ server {\n     # Must always show the running build; 404 instead of the app when it is missing.\n     location = /version.json { expires -1; try_files $uri =404; }\n \n+    # Same routes as proxy.conf.json, so the image also runs next to the backend's local\n+    # compose stack (web-prod) without Caddy. In production Caddy answers these paths first.\n+    location /api/ {\n+        proxy_pass http://web-prod:8000;\n+        proxy_set_header Host $host;\n+        proxy_set_header X-Forwarded-Proto $scheme;\n+        client_max_body_size 55m;\n+    }\n+\n     # Single-page app: unknown paths fall back to index.html.\n     location / { try_files $uri $uri/ /index.html; }\n }",
     "body": "",
     "minutes_before": 21
   },

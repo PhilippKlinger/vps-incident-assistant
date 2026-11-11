@@ -53,10 +53,10 @@
     ],
     "patch": "diff --git a/nginx.conf b/nginx.conf\n@@ -25,7 +25,8 @@ server {\n     location ~* \\.(?:js|css|woff2?|ttf|svg|png|jpe?g|webp|avif|ico)$ { expires 1y; try_files $uri =404; }\n     # Fonts keep a stable URL for the preload, so they get a shorter lifetime than hashed bundles.\n     location ^~ /fonts/ { expires 30d; try_files $uri =404; }\n-    location = /index.html { expires -1; }\n+    # Links to /index.html land on the start page; the app router owns every path.\n+    location = /index.html { expires -1; rewrite ^ / last; }\n     # Must always show the running build; 404 instead of the app when it is missing.\n     location = /version.json { expires -1; try_files $uri =404; }",
     "body": "",
-    "minutes_before": 23
+    "minutes_before": 13
   },
   "deploy_runs": [
-    "Deploy 2026-11-24 08:40 UTC: failure (repository_dispatch, image-published)",
+    "Deploy 2026-11-24 08:50 UTC: failure (repository_dispatch, image-published)",
     "Deploy 2026-11-24 05:43 UTC: success (repository_dispatch, image-published)",
     "Deploy 2026-11-23 23:03 UTC: success (repository_dispatch, image-published)"
   ],
