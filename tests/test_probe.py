@@ -101,9 +101,9 @@ def test_fact_texts_hide_addresses():
 
     texts = result.fact_texts()
 
-    assert "HTTP 502 nach 120 ms" in texts
-    assert "Zertifikat noch 9 Tage gültig" in texts
-    assert "DNS: 2 Adressen" in texts
+    assert "HTTP 502 in 120 ms" in texts
+    assert "Certificate expires in 9 days" in texts
+    assert "DNS: 2 addresses" in texts
     assert "Header server: Caddy" in texts
     assert not any("203.0.113" in text for text in texts)
 
@@ -112,8 +112,8 @@ def test_fact_texts_for_errors():
     def result(error, addresses=("203.0.113.7",)):
         return ProbeResult(None, error, None, {}, None, addresses).fact_texts()
 
-    assert "Verbindung abgelehnt" in result("refused")
-    assert "Zeitüberschreitung nach 10 s" in result("timeout")
-    assert "TLS-Fehler beim Verbindungsaufbau" in result("tls")
-    assert result("dns", ()) == ["DNS: keine Adresse"]
-    assert "DNS: 1 Adresse" in result("refused")
+    assert "Connection refused" in result("refused")
+    assert "Timed out after 10 s" in result("timeout")
+    assert "TLS handshake failed" in result("tls")
+    assert result("dns", ()) == ["DNS: no address"]
+    assert "DNS: 1 address" in result("refused")

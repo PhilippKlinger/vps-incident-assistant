@@ -35,6 +35,15 @@ def test_classify_tls_days():
     assert classify(_event(), _probe(status=502, days=14)).category == Category.upstream_502
 
 
+def test_classify_tls_days_reason_uses_singular_for_one_day():
+    assert classify(_event(), _probe(status=200, days=1)).reason == (
+        "The certificate expires in 1 day."
+    )
+    assert classify(_event(), _probe(status=200, days=13)).reason == (
+        "The certificate expires in 13 days."
+    )
+
+
 def test_classify_proxy_down():
     result = classify(_event(), _probe(error="refused"))
     assert (result.category, result.severity) == (Category.proxy_down, Severity.critical)

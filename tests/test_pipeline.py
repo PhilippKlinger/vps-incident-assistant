@@ -29,10 +29,10 @@ SETTINGS = Settings("s", "r", "i", REPO, "tok", "chat", "http://ollama:11434", "
 PROBE = ProbeResult(502, None, 40, {}, 30, ("1.2.3.4",))
 ANSWER = {
     "suspected_change": "none",
-    "change_reasoning": "keine Änderung",
+    "change_reasoning": "no change",
     "runbook": "none",
-    "runbook_reasoning": "nichts passend",
-    "summary": "Der Upstream antwortet nicht.",
+    "runbook_reasoning": "nothing matches",
+    "summary": "The upstream does not respond.",
     "evidence": ["F1"],
     "confidence": "low",
 }
@@ -105,7 +105,7 @@ def _reader(fail=False) -> GitHubReader:
             return httpx.Response(200, json=[])
         if path.endswith("/runs"):
             return httpx.Response(200, json={"workflow_runs": []})
-        return httpx.Response(200, text="## Troubleshooting\n### 502\nPrüfe den Upstream\n")
+        return httpx.Response(200, text="## Troubleshooting\n### 502\nCheck the upstream\n")
 
     client = httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler))
     return GitHubReader(client)
@@ -151,10 +151,10 @@ def test_pipeline_create_then_analysis():
     created = s.store.calls("POST", "/issues")
     assert len(created) == 1
     assert created[0]["labels"] == ["incident", "project:videoflix", "monitor:videoflix-api"]
-    assert "Analyse folgt." in created[0]["body"]
+    assert "Analysis pending." in created[0]["body"]
     comments = s.store.calls("POST", "/comments")
     assert len(comments) == 1
-    assert "Analyse (Vermutung)" in comments[0]["body"]
+    assert "Analysis (suspected cause)" in comments[0]["body"]
     assert len(s.telegram) == 1
     assert "https://github.com/owner/issues/issues/1" in s.telegram[0]
     assert s.probe_calls == ["https://x.example/health"]
@@ -164,7 +164,7 @@ def test_pipeline_llm_switch_off():
     s = Setup(llm=False)
     handle_event(_event(), s.deps)
     assert s.ollama_calls == 0
-    assert "ohne LLM-Analyse" in s.store.calls("POST", "/issues")[0]["body"]
+    assert "no LLM analysis" in s.store.calls("POST", "/issues")[0]["body"]
     assert s.store.calls("POST", "/comments") == []
     assert len(s.telegram) == 1
     assert "upstream_502" in s.telegram[0]
@@ -183,7 +183,7 @@ def test_pipeline_github_down_skips_llm():
     handle_event(_event(), s.deps)
     assert s.ollama_calls == 0
     body = s.store.calls("POST", "/issues")[0]["body"]
-    assert "### Regel-Ergebnis" in body
+    assert "### Rule result" in body
     assert len(s.telegram) == 1
 
 
@@ -193,7 +193,7 @@ def test_pipeline_rate_limit_skips_llm():
     assert s.ollama_calls == 0
     comments = s.store.calls("POST", "/comments")
     assert len(comments) == 1
-    assert "Stundenlimit erreicht" in comments[0]["body"]
+    assert "hourly limit reached" in comments[0]["body"]
     assert len(s.telegram) == 1
 
 
@@ -202,7 +202,7 @@ def test_pipeline_unavailable_comment():
     handle_event(_event(), s.deps)
     comments = s.store.calls("POST", "/comments")
     assert len(comments) == 1
-    assert "Analyse nicht verfügbar" in comments[0]["body"]
+    assert "Analysis unavailable" in comments[0]["body"]
     assert len(s.telegram) == 1
 
 
@@ -210,7 +210,7 @@ def test_pipeline_append_adds_label_no_telegram():
     s = Setup()
     s.store.seed(7, ["incident", "project:videoflix", "monitor:videoflix-web-app"])
     handle_event(_event("Videoflix · API"), s.deps)
-    assert "Weiterer Alarm" in s.store.calls("POST", "/comments")[0]["body"]
+    assert "Additional alert" in s.store.calls("POST", "/comments")[0]["body"]
     assert s.store.calls("POST", "/labels") == [{"labels": ["monitor:videoflix-api"]}]
     assert s.ollama_calls == 0
     assert s.telegram == []
@@ -224,7 +224,7 @@ def test_pipeline_reopen_flap():
         updated_at=NOW - timedelta(minutes=3),
     )
     handle_event(_event(), s.deps)
-    assert "Erneut gestört" in s.store.calls("POST", "/comments")[0]["body"]
+    assert "Flapping: down again" in s.store.calls("POST", "/comments")[0]["body"]
     deletes = [p for m, p, _ in s.store.requests if m == "DELETE"]
     assert deletes == ["/issues/7/labels/resolved-pending-review"]
     assert s.store.calls("POST", "/labels") == [{"labels": ["monitor:videoflix-api"]}]
@@ -261,7 +261,9 @@ def test_pipeline_monitor_up_with_other_monitor_down():
         ["incident", "project:videoflix", "monitor:videoflix-api", "monitor:videoflix-web-app"],
     )
     handle_event(_event("Videoflix · API", "up"), s.deps)
-    assert "wieder erreichbar" in s.store.calls("POST", "/comments")[0]["body"]
+    assert (
+        "recovered; other monitors are still down" in s.store.calls("POST", "/comments")[0]["body"]
+    )
     deletes = [p for m, p, _ in s.store.requests if m == "DELETE"]
     assert deletes == ["/issues/7/labels/monitor:videoflix-api"]
     assert s.probe_calls == []
@@ -272,7 +274,10 @@ def test_pipeline_resolve_no_telegram():
     s = Setup()
     s.store.seed(7, ["incident", "project:videoflix", "monitor:videoflix-api"])
     handle_event(_event("Videoflix · API", "up"), s.deps)
-    assert "Erholt, 5 min nach Beginn der Störung" in s.store.calls("POST", "/comments")[0]["body"]
+    assert (
+        "Recovered 5 min after the incident started"
+        in s.store.calls("POST", "/comments")[0]["body"]
+    )
     assert s.store.calls("POST", "/labels") == [{"labels": ["resolved-pending-review"]}]
     deletes = [p for m, p, _ in s.store.requests if m == "DELETE"]
     assert deletes == ["/issues/7/labels/monitor:videoflix-api"]
@@ -296,7 +301,7 @@ def test_pipeline_appends_same_monitor_down_after_window():
         updated_at=NOW - timedelta(minutes=11),
     )
     handle_event(_event("Videoflix · API"), s.deps)
-    assert "Weiterer Alarm" in s.store.calls("POST", "/comments")[0]["body"]
+    assert "Additional alert" in s.store.calls("POST", "/comments")[0]["body"]
     assert s.store.calls("POST", "/issues") == []
     assert s.telegram == []
 
@@ -331,7 +336,7 @@ def test_run_event_logs_unexpected_error(caplog):
     s = Setup(llm=False)
 
     def boom(text):
-        raise RuntimeError("kaputt")
+        raise RuntimeError("garbage")
 
     s.deps.telegram = boom
     run_event(_event(), s.deps)
@@ -404,7 +409,7 @@ def test_analyze_error_resolves_analysis_pending(monkeypatch, caplog):
     handle_event(_event(), s.deps)
     comments = s.store.calls("POST", "/comments")
     assert [c["body"] for c in comments] == [
-        "Analyse nicht verfügbar: interner Fehler. Es gilt das Regel-Ergebnis oben."
+        "Analysis unavailable: internal error. The rule result above still applies."
     ]
     assert len(s.telegram) == 1
 

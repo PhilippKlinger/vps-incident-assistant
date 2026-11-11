@@ -22,7 +22,7 @@ from assistant.rules import Category, RuleResult, Severity
 NOW = datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
 PROJECT = Project("videoflix", "Videoflix", ("Videoflix · API",), ("o/a",), ("o/a",), True)
 EVENT = KumaEvent(monitor_name="Videoflix · API", url=None, status="down", msg="x", time=NOW)
-RULE = RuleResult(Category.upstream_502, Severity.high, "Die Adresse antwortet mit HTTP 502.")
+RULE = RuleResult(Category.upstream_502, Severity.high, "The URL returns HTTP 502.")
 
 
 def _ctx(title="fix: proxy", body="body", fact="Kuma: down"):
@@ -43,7 +43,7 @@ def _ctx(title="fix: proxy", body="body", fact="Kuma: down"):
         rule=RULE,
         facts=(Fact(id="F1", source="kuma", text=fact),),
         changes=(change,),
-        anchors=(RunbookAnchor(id="o/a#502", repo="o/a", title="502", text="Prüfe den Upstream"),),
+        anchors=(RunbookAnchor(id="o/a#502", repo="o/a", title="502", text="Check the upstream"),),
         github_ok=True,
     )
 
@@ -51,10 +51,10 @@ def _ctx(title="fix: proxy", body="body", fact="Kuma: down"):
 def _answer(**override):
     data = {
         "suspected_change": "C1",
-        "change_reasoning": "passt zeitlich",
+        "change_reasoning": "timing fits",
         "runbook": "o/a#502",
-        "runbook_reasoning": "502 im Runbook",
-        "summary": "Der Upstream antwortet nicht.",
+        "runbook_reasoning": "502 in runbook",
+        "summary": "The upstream does not respond.",
         "evidence": ["F1", "C1"],
         "confidence": "low",
     }
@@ -98,7 +98,7 @@ def test_extra_field_rejected():
 
 
 def test_text_around_json_rejected():
-    _rejected("Hier ist die Antwort: " + _answer())
+    _rejected("Here is the answer: " + _answer())
 
 
 def test_think_block_rejected():
@@ -138,15 +138,15 @@ def test_analyze_retries_once_then_unavailable():
 
     def handler(request):
         calls.append(1)
-        return httpx.Response(200, json={"message": {"content": "kein json"}})
+        return httpx.Response(200, json={"message": {"content": "not json"}})
 
     result = analyze(_ctx(), _client(handler))
     assert len(calls) == 2
-    assert result == Unavailable("Antwort ungültig")
+    assert result == Unavailable("invalid response")
 
 
 def test_analyze_recovers_on_second_attempt():
-    answers = iter(["kaputt", _answer()])
+    answers = iter(["garbage", _answer()])
     client = _client(lambda r: httpx.Response(200, json={"message": {"content": next(answers)}}))
     assert isinstance(analyze(_ctx(), client), Analysis)
 
@@ -155,12 +155,12 @@ def test_analyze_timeout_unavailable():
     def handler(request):
         raise httpx.ReadTimeout("slow", request=request)
 
-    assert analyze(_ctx(), _client(handler)) == Unavailable("Zeitlimit erreicht")
+    assert analyze(_ctx(), _client(handler)) == Unavailable("model timed out")
 
 
 def test_analyze_http_error_unavailable():
     assert analyze(_ctx(), _client(lambda r: httpx.Response(500))) == Unavailable(
-        "Modell nicht erreichbar"
+        "model unreachable"
     )
 
 
@@ -168,12 +168,12 @@ def test_analyze_connect_error_unavailable():
     def handler(request):
         raise httpx.ConnectError("no", request=request)
 
-    assert analyze(_ctx(), _client(handler)) == Unavailable("Modell nicht erreichbar")
+    assert analyze(_ctx(), _client(handler)) == Unavailable("model unreachable")
 
 
 def test_analyze_missing_content_unavailable():
     client = _client(lambda r: httpx.Response(200, json={"foo": 1}))
-    assert analyze(_ctx(), client) == Unavailable("Modell nicht erreichbar")
+    assert analyze(_ctx(), client) == Unavailable("model unreachable")
 
 
 def test_build_messages_structure():
@@ -216,7 +216,7 @@ def test_valid_answer_with_whitespace_accepted():
 
 def test_analyze_null_content_unavailable():
     client = _client(lambda r: httpx.Response(200, json={"message": {"content": None}}))
-    assert analyze(_ctx(), client) == Unavailable("Modell nicht erreichbar")
+    assert analyze(_ctx(), client) == Unavailable("model unreachable")
 
 
 def test_prompt_bug_propagates(monkeypatch):

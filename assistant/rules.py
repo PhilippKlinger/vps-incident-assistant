@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from assistant.models import KumaEvent
-from assistant.probe import ProbeResult
+from assistant.probe import TIMEOUT_SECONDS, ProbeResult, day_count
 
 TLS_WARN_DAYS = 14
 
@@ -36,53 +36,51 @@ def classify(event: KumaEvent, probe: ProbeResult | None) -> RuleResult:
         return RuleResult(
             Category.unknown,
             Severity.high,
-            "Der Monitor hat keine Adresse, deshalb wurde keine Prüfung durchgeführt.",
+            "The monitor has no URL, so no probe was run.",
         )
     if probe.error == "dns":
         return RuleResult(
-            Category.dns, Severity.critical, "Der Domainname lässt sich nicht auflösen."
+            Category.dns, Severity.critical, "DNS lookup failed; the hostname does not resolve."
         )
     if probe.error == "tls":
         return RuleResult(
             Category.tls,
             Severity.critical,
-            "Der TLS-Verbindungsaufbau schlägt fehl, das Zertifikat ist vermutlich ungültig.",
+            "The TLS handshake failed; the certificate is likely invalid.",
         )
     if probe.tls_days_left is not None and probe.tls_days_left < TLS_WARN_DAYS:
         return RuleResult(
             Category.tls,
             Severity.high,
-            f"Das Zertifikat läuft in {probe.tls_days_left} Tagen ab.",
+            f"The certificate expires in {day_count(probe.tls_days_left)}.",
         )
     if probe.error == "refused":
         return RuleResult(
             Category.proxy_down,
             Severity.critical,
-            "Die Verbindung wird abgelehnt, der Proxy nimmt keine Anfragen an.",
+            "The connection was refused; the proxy is not accepting requests.",
         )
     if probe.error == "timeout":
         return RuleResult(
-            Category.timeout, Severity.high, "Die Adresse antwortet nicht innerhalb der Frist."
+            Category.timeout, Severity.high, f"The URL did not respond within {TIMEOUT_SECONDS} s."
         )
     code = probe.status_code
     if code in (502, 503, 504):
         return RuleResult(
             Category.upstream_502,
             Severity.high,
-            f"Die Adresse antwortet mit HTTP {code}, der Proxy erreicht die Anwendung nicht.",
+            f"The URL returned HTTP {code}; the proxy could not reach the upstream application.",
         )
     if code is not None and code >= 500:
         return RuleResult(
             Category.app_error,
             Severity.high,
-            f"Die Anwendung antwortet mit HTTP {code}.",
+            f"The application returned HTTP {code}.",
         )
     if event.status == "down" and code == 200 and (event.url or "").endswith("/api/health/"):
         return RuleResult(
             Category.health_degraded,
             Severity.high,
-            "Der Health-Check antwortet mit HTTP 200, meldet aber einen Alarm.",
+            "The health check returned HTTP 200 but reported a degraded state.",
         )
-    return RuleResult(
-        Category.unknown, Severity.high, "Die Prüfung ergibt keine eindeutige Ursache."
-    )
+    return RuleResult(Category.unknown, Severity.high, "The probe found no clear cause.")

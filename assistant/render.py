@@ -7,8 +7,7 @@ from assistant.models import Analysis
 _URL = re.compile(r"[a-z][a-z0-9+.-]*://\S+|www\.\S+", re.IGNORECASE)
 _ESCAPE = re.compile(r"([`*_\[\]()!#|&\\])")
 _ISSUE_REF = re.compile(r"#(\d)")
-_CONFIDENCE = {"low": "niedrig", "medium": "mittel", "high": "hoch"}
-_UNKNOWN = "unbekannt"
+_UNKNOWN = "unknown"
 
 
 def sanitize(text: str, max_len: int) -> str:
@@ -36,56 +35,59 @@ def _facts(ctx: IncidentContext) -> str:
 
 def _rule(ctx: IncidentContext) -> str:
     rule = ctx.rule
-    return f"Kategorie: {rule.category}\nSchwere: {rule.severity}\nGrund: {rule.reason}"
+    return f"Category: {rule.category}\nSeverity: {rule.severity}\nReason: {rule.reason}"
 
 
 def _changes(ctx: IncidentContext) -> str:
     if not ctx.github_ok:
-        return "nicht abrufbar"
+        return "unavailable"
     if not ctx.changes:
-        return "keine"
+        return "none"
     return "\n".join(
         f"- {c.id} · {_short(c.repo)} · {c.sha[:7]} · {sanitize(c.title, 120)}" for c in ctx.changes
     )
 
 
 def issue_title(ctx: IncidentContext) -> str:
-    name = sanitize(ctx.event.monitor_name, 120)
-    return f"Störung: {ctx.project.display_name} – {ctx.rule.category} ({name})"
+    display_name = ctx.project.display_name
+    title = f"Incident: {display_name} – {ctx.rule.category}"
+    if ctx.event.monitor_name == display_name:
+        return title
+    return f"{title} ({sanitize(ctx.event.monitor_name, 120)})"
 
 
 def issue_body(ctx: IncidentContext, *, analysis_pending: bool) -> str:
-    note = "Analyse folgt." if analysis_pending else "Hinweis: ohne LLM-Analyse."
+    note = "Analysis pending." if analysis_pending else "Note: no LLM analysis for this incident."
     return (
-        f"### Regel-Ergebnis\n\n{_rule(ctx)}\n\n"
-        f"### Fakten\n\n{_facts(ctx)}\n\n"
-        f"### Änderungen im Zeitfenster\n\n{_changes(ctx)}\n\n"
+        f"### Rule result\n\n{_rule(ctx)}\n\n"
+        f"### Facts\n\n{_facts(ctx)}\n\n"
+        f"### Changes in the time window\n\n{_changes(ctx)}\n\n"
         f"{note}"
     )
 
 
 def append_comment(ctx: IncidentContext) -> str:
     name = sanitize(ctx.event.monitor_name, 120)
-    return f"### Weiterer Alarm\n\nMonitor: {name}\n{_rule(ctx)}\n\n{_facts(ctx)}"
+    return f"### Additional alert\n\nMonitor: {name}\n{_rule(ctx)}\n\n{_facts(ctx)}"
 
 
 def flap_comment(ctx: IncidentContext) -> str:
-    return f"### Erneut gestört kurz nach der Erholung\n\n{_rule(ctx)}\n\n{_facts(ctx)}"
+    return f"### Flapping: down again shortly after recovery\n\n{_rule(ctx)}\n\n{_facts(ctx)}"
 
 
 def resolved_comment(duration: timedelta) -> str:
     # Measured from the issue creation, so a flap in between counts towards it.
     minutes = max(1, int(duration.total_seconds() // 60))
-    return f"Erholt, {minutes} min nach Beginn der Störung. Nachbetrachtung offen."
+    return f"Recovered {minutes} min after the incident started; post-incident review pending."
 
 
 def unavailable_comment(reason: str) -> str:
-    return f"Analyse nicht verfügbar: {reason}. Es gilt das Regel-Ergebnis oben."
+    return f"Analysis unavailable: {reason}. The rule result above still applies."
 
 
 def _change_line(analysis: Analysis, ctx: IncidentContext) -> str:
     if analysis.suspected_change == "none":
-        return "keine bestimmte Änderung"
+        return "no specific change"
     for change in ctx.changes:
         if change.id == analysis.suspected_change:
             return f"{change.id} · {_short(change.repo)} · {change.sha[:7]}"
@@ -94,7 +96,7 @@ def _change_line(analysis: Analysis, ctx: IncidentContext) -> str:
 
 def _runbook_line(analysis: Analysis, ctx: IncidentContext) -> str:
     if analysis.runbook == "none":
-        return "kein passender Abschnitt"
+        return "no matching section"
     for anchor in ctx.anchors:
         if anchor.id == analysis.runbook:
             slug = anchor.id.split("#", 1)[1]
@@ -105,20 +107,20 @@ def _runbook_line(analysis: Analysis, ctx: IncidentContext) -> str:
 def analysis_comment(analysis: Analysis, ctx: IncidentContext) -> str:
     evidence = ", ".join(sanitize(item, 20) for item in analysis.evidence)
     return (
-        "### Analyse (Vermutung)\n\n"
+        "### Analysis (suspected cause)\n\n"
         f"{sanitize(analysis.summary, 300)}\n\n"
-        f"- Vermutete Änderung: {_change_line(analysis, ctx)}\n"
+        f"- Suspected change: {_change_line(analysis, ctx)}\n"
         f"  {sanitize(analysis.change_reasoning, 400)}\n"
         f"- Runbook: {_runbook_line(analysis, ctx)}\n"
         f"  {sanitize(analysis.runbook_reasoning, 300)}\n"
-        f"- Belege: {evidence}\n"
-        f"- Zuversicht: {_CONFIDENCE[analysis.confidence]}"
+        f"- Evidence: {evidence}\n"
+        f"- Confidence: {analysis.confidence}"
     )
 
 
 def _lookup(wanted: str, rows) -> str:
     if wanted == "none":
-        return "keine"
+        return "none"
     return next((label for key, label in rows if key == wanted), _UNKNOWN)
 
 
@@ -133,10 +135,8 @@ def telegram_text(ctx: IncidentContext, issue_url: str, analysis: Analysis | Non
     )
     runbook = _lookup(analysis.runbook, ((a.id, a.title) for a in ctx.anchors))
     number = issue_url.rstrip("/").rsplit("/", 1)[-1]
-    return (
-        f"{name}: vermutete Ursache {change} · Runbook: {runbook} · Issue #{number} · {issue_url}"
-    )
+    return f"{name}: suspected cause {change} · Runbook: {runbook} · Issue #{number} · {issue_url}"
 
 
 def monitor_up_comment(monitor_name: str) -> str:
-    return f"{sanitize(monitor_name, 120)} wieder erreichbar, weitere Monitore noch gestört."
+    return f"{sanitize(monitor_name, 120)} recovered; other monitors are still down."

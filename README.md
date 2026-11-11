@@ -41,7 +41,7 @@ sequenceDiagram
 - Deploy context: per repo the commits of the last 72 hours (at most 10), changed files, shortened diffs (2000 characters per change, 12000 in total) and the latest runs of the deploy workflow.
 - Runbook: the `## Troubleshooting` section in the READMEs of `vps-edge`, `vps-monitoring` and `videoflix-deploy`.
 
-**Evidence is mandatory.** The answer is discarded unless it passes the check: valid schema, and a change ID, runbook anchor and evidence IDs that exist in the supplied lists, with at least one piece of evidence. On a failed check, a timeout or an unreachable Ollama the assistant retries once and then comments that the analysis is not available; the rule result stays. The issue always calls the analysis a "Vermutung" (suspicion).
+**Evidence is mandatory.** The answer is discarded unless it passes the check: valid schema, and a change ID, runbook anchor and evidence IDs that exist in the supplied lists, with at least one piece of evidence. On a failed check, a timeout or an unreachable Ollama the assistant retries once and then comments that the analysis is not available; the rule result stays. The issue always labels the analysis a "suspected cause".
 
 **Lifecycle.**
 
@@ -51,7 +51,7 @@ sequenceDiagram
 - At most 6 LLM runs per hour (`max_runs_per_hour`); above that the issue keeps the rule result and gets a comment that the analysis is unavailable because of the limit.
 - Telegram: Kuma reports down and up itself. The assistant sends one message per incident once the analysis is done (without LLM: the issue link with the rule result). Same bot and chat as Kuma.
 
-Issue and Telegram text is German.
+Issue and Telegram text is English.
 
 ## Security
 
@@ -146,7 +146,7 @@ Resources: the assistant gets 256 MB and 0.5 CPU. Ollama gets `cpus: 2`, `mem_li
 - If the whole VPS is down, there is neither a Kuma alert nor an analysis.
 - An analysis can pass the check and still be wrong. The check proves that every ID, commit and anchor exists, not that the conclusion is right.
 - A restart of the assistant resets the hourly LLM limit.
-- Only public repos are read. Causes outside them (a provider outage, an expired certificate) show up as "no suspected change".
+- Only public repos are read. Causes outside them (a provider outage, an expired certificate) show up as "no specific change".
 - The assistant sees only what is visible from outside and in the repos, not the host (logs, CPU, disk).
 
 ## Development

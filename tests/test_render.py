@@ -21,7 +21,7 @@ NOW = datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
 PROJECT = Project(
     "videoflix", "Videoflix", ("Videoflix · API",), ("o/vps-edge",), ("o/vps-edge",), True
 )
-RULE = RuleResult(Category.upstream_502, Severity.high, "Die Adresse antwortet mit HTTP 502.")
+RULE = RuleResult(Category.upstream_502, Severity.high, "The URL returns HTTP 502.")
 EVENT = KumaEvent(monitor_name="Videoflix · API", url=None, status="down", msg="m", time=NOW)
 CHANGE = Change(
     id="C3",
@@ -54,10 +54,10 @@ def make_ctx(changes=(CHANGE,), github_ok=True, event=EVENT):
 def make_analysis(**over):
     data = {
         "suspected_change": "C3",
-        "change_reasoning": "Passt zeitlich.",
+        "change_reasoning": "The timing fits.",
         "runbook": "vps-edge#upstream-502",
-        "runbook_reasoning": "Gleiches Symptom.",
-        "summary": "Proxy erreicht die App nicht.",
+        "runbook_reasoning": "Same symptom.",
+        "summary": "The proxy cannot reach the app.",
         "evidence": ["F1", "C3"],
         "confidence": "medium",
     }
@@ -98,7 +98,14 @@ def test_sanitize_never_ends_in_dangling_backslash():
 
 
 def test_issue_title():
-    assert issue_title(make_ctx()) == "Störung: Videoflix – upstream_502 (Videoflix · API)"
+    assert issue_title(make_ctx()) == "Incident: Videoflix – upstream_502 (Videoflix · API)"
+
+
+def test_issue_title_omits_monitor_name_equal_to_display_name():
+    project = Project("portfolio", "Portfolio", ("Portfolio",), (), (), False)
+    event = EVENT.model_copy(update={"monitor_name": "Portfolio"})
+    ctx = IncidentContext(project, event, RULE, FACTS, (), (), True)
+    assert issue_title(ctx) == "Incident: Portfolio – upstream_502"
 
 
 def test_issue_title_sanitizes_monitor_name():
@@ -108,61 +115,62 @@ def test_issue_title_sanitizes_monitor_name():
 
 def test_issue_body_sections():
     body = issue_body(make_ctx(), analysis_pending=True)
-    assert "### Regel-Ergebnis" in body
+    assert "### Rule result" in body
     assert "upstream_502" in body and "high" in body and RULE.reason in body
-    assert "### Fakten" in body and "- F1: Kuma: down" in body
-    assert "### Änderungen im Zeitfenster" in body
+    assert "### Facts" in body and "- F1: Kuma: down" in body
+    assert "### Changes in the time window" in body
     assert "- C3 · vps-edge · a1b2c3d · fix: tune \\*proxy\\* (at)bob" in body
-    assert "Analyse folgt" in body and "ohne LLM-Analyse" not in body
+    assert "Analysis pending." in body and "no LLM analysis" not in body
 
 
 def test_issue_body_without_llm():
     body = issue_body(make_ctx(), analysis_pending=False)
-    assert "ohne LLM-Analyse" in body and "Analyse folgt" not in body
+    assert "Note: no LLM analysis for this incident." in body and "Analysis pending" not in body
 
 
 def test_issue_body_changes_none_and_unavailable():
-    assert "keine" in issue_body(make_ctx(changes=()), analysis_pending=False)
+    body = issue_body(make_ctx(changes=()), analysis_pending=False)
+    assert "### Changes in the time window\n\nnone\n" in body
     body = issue_body(make_ctx(changes=(), github_ok=False), analysis_pending=False)
-    assert "nicht abrufbar" in body
+    assert "### Changes in the time window\n\nunavailable\n" in body
 
 
 def test_append_and_flap_comments():
     append = append_comment(make_ctx())
-    assert "Weiterer Alarm" in append and "Videoflix · API" in append
+    assert "### Additional alert" in append and "Videoflix · API" in append
     assert "upstream_502" in append and "- F2: HTTP 502" in append
     flap = flap_comment(make_ctx())
-    assert "Erneut gestört kurz nach der Erholung" in flap
+    assert "### Flapping: down again shortly after recovery" in flap
     assert "upstream_502" in flap and "- F1: Kuma: down" in flap
 
 
 def test_resolved_comment_duration():
     assert resolved_comment(timedelta(minutes=12, seconds=59)) == (
-        "Erholt, 12 min nach Beginn der Störung. Nachbetrachtung offen."
+        "Recovered 12 min after the incident started; post-incident review pending."
     )
-    assert resolved_comment(timedelta(seconds=5)).startswith("Erholt, 1 min nach Beginn")
+    assert resolved_comment(timedelta(seconds=5)).startswith("Recovered 1 min after")
 
 
 def test_unavailable_comment():
-    assert unavailable_comment("Zeitüberschreitung") == (
-        "Analyse nicht verfügbar: Zeitüberschreitung. Es gilt das Regel-Ergebnis oben."
+    assert unavailable_comment("model timed out") == (
+        "Analysis unavailable: model timed out. The rule result above still applies."
     )
 
 
-def test_analysis_comment_says_vermutung():
+def test_analysis_comment_says_suspected_cause():
     out = analysis_comment(make_analysis(), make_ctx())
-    assert out.startswith("### Analyse (Vermutung)")
+    assert out.startswith("### Analysis (suspected cause)")
     assert "C3 · vps-edge · a1b2c3d" in out
     assert "F1, C3" in out
-    assert "mittel" in out
-    assert "Passt zeitlich." in out and "Gleiches Symptom." in out
+    assert "- Confidence: medium" in out
+    assert "The timing fits." in out and "Same symptom." in out
 
 
 def test_analysis_comment_link_only_from_anchor():
     analysis = make_analysis(
-        summary="siehe https://evil.example/x",
-        change_reasoning="auch www.evil.example",
-        runbook_reasoning="und HTTP://evil.example",
+        summary="see https://evil.example/x",
+        change_reasoning="also www.evil.example",
+        runbook_reasoning="and HTTP://evil.example",
     )
     out = analysis_comment(analysis, make_ctx())
     assert out.lower().count("http") == 1
@@ -172,16 +180,16 @@ def test_analysis_comment_link_only_from_anchor():
 
 def test_analysis_comment_none_and_unknown_ids():
     out = analysis_comment(make_analysis(suspected_change="none", runbook="none"), make_ctx())
-    assert "keine bestimmte Änderung" in out and "kein passender Abschnitt" in out
+    assert "no specific change" in out and "no matching section" in out
     assert "http" not in out
     out = analysis_comment(make_analysis(suspected_change="C9", runbook="x#y"), make_ctx())
-    assert out.count("unbekannt") == 2
+    assert out.count("unknown") == 2
 
 
 def test_telegram_text_with_analysis():
     text = telegram_text(make_ctx(), ISSUE_URL, make_analysis())
     assert text == (
-        "Videoflix: vermutete Ursache vps-edge a1b2c3d · Runbook: Upstream 502 · Issue #12"
+        "Videoflix: suspected cause vps-edge a1b2c3d · Runbook: Upstream 502 · Issue #12"
         f" · {ISSUE_URL}"
     )
 
@@ -189,7 +197,7 @@ def test_telegram_text_with_analysis():
 def test_telegram_text_with_analysis_none_parts():
     analysis = make_analysis(suspected_change="none", runbook="none")
     text = telegram_text(make_ctx(), ISSUE_URL, analysis)
-    assert text.startswith("Videoflix: vermutete Ursache keine · Runbook: keine · Issue #12")
+    assert text.startswith("Videoflix: suspected cause none · Runbook: none · Issue #12")
 
 
 def test_telegram_text_without_analysis():
@@ -224,10 +232,10 @@ def test_sanitize_breaks_issue_references():
 def test_telegram_text_unknown_ids():
     analysis = make_analysis(suspected_change="C9", runbook="x#y")
     text = telegram_text(make_ctx(), ISSUE_URL, analysis)
-    assert "vermutete Ursache unbekannt · Runbook: unbekannt" in text
+    assert "suspected cause unknown · Runbook: unknown" in text
 
 
 def test_monitor_up_comment_sanitizes_name():
     text = monitor_up_comment("Videoflix · API @evil")
-    assert "wieder erreichbar" in text
+    assert text == "Videoflix · API (at)evil recovered; other monitors are still down."
     assert "@" not in text

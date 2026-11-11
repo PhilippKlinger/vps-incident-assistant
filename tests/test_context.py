@@ -11,7 +11,7 @@ from assistant.rules import Category, RuleResult, Severity
 
 NOW = datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
 PROJECT = Project("videoflix", "Videoflix", ("Videoflix · API",), ("o/a", "o/b"), ("o/a",), True)
-RULE = RuleResult(Category.upstream_502, Severity.high, "Die Adresse antwortet mit HTTP 502.")
+RULE = RuleResult(Category.upstream_502, Severity.high, "The URL returns HTTP 502.")
 EVENT = KumaEvent(
     monitor_name="Videoflix · API",
     url="https://v.example/",
@@ -62,7 +62,7 @@ def test_context_ids_are_sequential():
     fact_ids = [f.id for f in ctx.facts]
     assert fact_ids == [f"F{i}" for i in range(1, len(fact_ids) + 1)]
     assert ctx.facts[0].source == "kuma"
-    assert ctx.facts[0].text.startswith("Kuma: Videoflix · API ist down – bad gateway")
+    assert ctx.facts[0].text.startswith("Kuma: Videoflix · API is down – bad gateway")
     assert all(
         len(f.text) <= 300 and "\n" not in f.text and "\x00" not in f.text for f in ctx.facts
     )
@@ -99,7 +99,7 @@ def test_context_caps_commit_title_and_body():
     change = build_context(EVENT, PROJECT, PROBE, RULE, reader, NOW).changes[0]
 
     assert len(change.title) <= 200 and change.title.startswith("TTT")
-    assert len(change.body) <= 500 and change.body.endswith("\n… gekürzt")
+    assert len(change.body) <= 500 and change.body.endswith("\n… truncated")
 
 
 def test_context_budget_counts_title_and_body():
@@ -124,7 +124,7 @@ def test_context_without_github():
 
     assert ctx.github_ok is False
     assert ctx.changes == () and ctx.anchors == ()
-    assert "nicht abrufbar" in ctx.facts[-1].text
+    assert "unavailable" in ctx.facts[-1].text
     assert ctx.facts[0].source == "kuma" and ctx.facts[1].source == "probe"
     assert all("Deploy" not in f.text for f in ctx.facts)
 

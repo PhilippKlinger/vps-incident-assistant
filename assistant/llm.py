@@ -48,21 +48,21 @@ def build_messages(ctx: IncidentContext, nonce: str) -> list[dict]:
     system = _SYSTEM_PROMPT.read_text(encoding="utf-8")
     rule = ctx.rule
     lines = [
-        "## Regel-Ergebnis",
-        f"Kategorie: {rule.category}",
-        f"Schweregrad: {rule.severity}",
-        f"Grund: {rule.reason}",
+        "## Rule result",
+        f"Category: {rule.category}",
+        f"Severity: {rule.severity}",
+        f"Reason: {rule.reason}",
         "",
-        "## Fakten",
+        "## Facts",
     ]
     for fact in ctx.facts:
         lines.append(f"{fact.id}: {_untrusted(fact.text, nonce)}")
-    lines += ["", "## Änderungen"]
+    lines += ["", "## Changes"]
     for change in ctx.changes:
         head = f"{change.id} · {change.repo} · {change.sha[:7]} · {change.merged_at.isoformat()}"
         text = f"{change.title}\n{change.body}\n{change.diff_excerpt}"
         lines += [head, _untrusted(text, nonce)]
-    lines += ["", "## Runbook-Abschnitte"]
+    lines += ["", "## Runbook sections"]
     for anchor in ctx.anchors:
         text = f"{anchor.title}\n{anchor.text[:ANCHOR_CHARS]}"
         lines += [anchor.id, _untrusted(text, nonce)]
@@ -71,7 +71,7 @@ def build_messages(ctx: IncidentContext, nonce: str) -> list[dict]:
     evidence_ids = [f.id for f in ctx.facts] + [c.id for c in ctx.changes]
     lines += [
         "",
-        "## Erlaubte IDs",
+        "## Allowed IDs",
         f"suspected_change: {', '.join(change_ids)}",
         f"runbook: {', '.join(anchor_ids)}",
         f"evidence: {', '.join(evidence_ids)}",
@@ -143,17 +143,17 @@ def analyze(
     # Built outside the error handling so a bug here is not reported as a model outage.
     messages = build_messages(ctx, secrets.token_hex(8))
     schema = analysis_schema()
-    reason = "Modell nicht erreichbar"
+    reason = "model unreachable"
     for _ in range(attempts):
         try:
             raw = ollama.chat(messages, schema)
             return validate_analysis(raw, ctx)
         except httpx.TimeoutException as error:
-            reason = _failed("Zeitlimit erreicht", error)
+            reason = _failed("model timed out", error)
         except (httpx.RequestError, httpx.HTTPStatusError, _BadResponse) as error:
-            reason = _failed("Modell nicht erreichbar", error)
+            reason = _failed("model unreachable", error)
         except AnalysisRejected as error:
-            reason = _failed("Antwort ungültig", error)
+            reason = _failed("invalid response", error)
     return Unavailable(reason)
 
 
