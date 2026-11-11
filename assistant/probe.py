@@ -15,6 +15,10 @@ _KEPT_HEADERS = ("server", "content-type", "retry-after", "x-request-id")
 ProbeError = Literal["refused", "timeout", "tls", "dns", "other"]
 
 
+def day_count(days: int) -> str:
+    return "1 day" if days == 1 else f"{days} days"
+
+
 @dataclass(frozen=True)
 class ProbeResult:
     status_code: int | None
@@ -44,8 +48,7 @@ class ProbeResult:
         else:
             texts.append(f"DNS: {len(self.addresses)} addresses")
         if self.tls_days_left is not None:
-            unit = "day" if self.tls_days_left == 1 else "days"
-            texts.append(f"Certificate expires in {self.tls_days_left} {unit}")
+            texts.append(f"Certificate expires in {day_count(self.tls_days_left)}")
         texts.extend(f"Header {name}: {value}" for name, value in self.headers.items())
         return texts
 

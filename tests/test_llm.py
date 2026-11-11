@@ -51,9 +51,9 @@ def _ctx(title="fix: proxy", body="body", fact="Kuma: down"):
 def _answer(**override):
     data = {
         "suspected_change": "C1",
-        "change_reasoning": "passt zeitlich",
+        "change_reasoning": "timing fits",
         "runbook": "o/a#502",
-        "runbook_reasoning": "502 im Runbook",
+        "runbook_reasoning": "502 in runbook",
         "summary": "The upstream does not respond.",
         "evidence": ["F1", "C1"],
         "confidence": "low",
@@ -146,7 +146,7 @@ def test_analyze_retries_once_then_unavailable():
 
 
 def test_analyze_recovers_on_second_attempt():
-    answers = iter(["kaputt", _answer()])
+    answers = iter(["garbage", _answer()])
     client = _client(lambda r: httpx.Response(200, json={"message": {"content": next(answers)}}))
     assert isinstance(analyze(_ctx(), client), Analysis)
 
@@ -155,7 +155,7 @@ def test_analyze_timeout_unavailable():
     def handler(request):
         raise httpx.ReadTimeout("slow", request=request)
 
-    assert analyze(_ctx(), _client(handler)) == Unavailable("timeout")
+    assert analyze(_ctx(), _client(handler)) == Unavailable("model timed out")
 
 
 def test_analyze_http_error_unavailable():

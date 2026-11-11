@@ -224,7 +224,7 @@ def test_pipeline_reopen_flap():
         updated_at=NOW - timedelta(minutes=3),
     )
     handle_event(_event(), s.deps)
-    assert "Down again" in s.store.calls("POST", "/comments")[0]["body"]
+    assert "Flapping: down again" in s.store.calls("POST", "/comments")[0]["body"]
     deletes = [p for m, p, _ in s.store.requests if m == "DELETE"]
     assert deletes == ["/issues/7/labels/resolved-pending-review"]
     assert s.store.calls("POST", "/labels") == [{"labels": ["monitor:videoflix-api"]}]
@@ -336,7 +336,7 @@ def test_run_event_logs_unexpected_error(caplog):
     s = Setup(llm=False)
 
     def boom(text):
-        raise RuntimeError("kaputt")
+        raise RuntimeError("garbage")
 
     s.deps.telegram = boom
     run_event(_event(), s.deps)

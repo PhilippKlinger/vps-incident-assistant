@@ -125,7 +125,7 @@ def test_issue_body_sections():
 
 def test_issue_body_without_llm():
     body = issue_body(make_ctx(), analysis_pending=False)
-    assert "Note: no LLM analysis for this project." in body and "Analysis pending" not in body
+    assert "Note: no LLM analysis for this incident." in body and "Analysis pending" not in body
 
 
 def test_issue_body_changes_none_and_unavailable():
@@ -140,7 +140,7 @@ def test_append_and_flap_comments():
     assert "### Additional alert" in append and "Videoflix · API" in append
     assert "upstream_502" in append and "- F2: HTTP 502" in append
     flap = flap_comment(make_ctx())
-    assert "### Down again shortly after recovery" in flap
+    assert "### Flapping: down again shortly after recovery" in flap
     assert "upstream_502" in flap and "- F1: Kuma: down" in flap
 
 
@@ -152,8 +152,8 @@ def test_resolved_comment_duration():
 
 
 def test_unavailable_comment():
-    assert unavailable_comment("timeout") == (
-        "Analysis unavailable: timeout. The rule result above still applies."
+    assert unavailable_comment("model timed out") == (
+        "Analysis unavailable: model timed out. The rule result above still applies."
     )
 
 

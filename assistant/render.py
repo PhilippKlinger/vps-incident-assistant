@@ -57,7 +57,7 @@ def issue_title(ctx: IncidentContext) -> str:
 
 
 def issue_body(ctx: IncidentContext, *, analysis_pending: bool) -> str:
-    note = "Analysis pending." if analysis_pending else "Note: no LLM analysis for this project."
+    note = "Analysis pending." if analysis_pending else "Note: no LLM analysis for this incident."
     return (
         f"### Rule result\n\n{_rule(ctx)}\n\n"
         f"### Facts\n\n{_facts(ctx)}\n\n"
@@ -72,7 +72,7 @@ def append_comment(ctx: IncidentContext) -> str:
 
 
 def flap_comment(ctx: IncidentContext) -> str:
-    return f"### Down again shortly after recovery\n\n{_rule(ctx)}\n\n{_facts(ctx)}"
+    return f"### Flapping: down again shortly after recovery\n\n{_rule(ctx)}\n\n{_facts(ctx)}"
 
 
 def resolved_comment(duration: timedelta) -> str:

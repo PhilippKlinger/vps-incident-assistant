@@ -15,7 +15,7 @@ llm = true
 
 [[projects]]
 name = "status"
-display_name = "Statusseite"
+display_name = "Status page"
 monitors = ["Statusseite"]
 repos = ["PhilippKlinger/videoflix-backend", "PhilippKlinger/videoflix-frontend", "PhilippKlinger/videoflix-deploy", "PhilippKlinger/vps-edge", "PhilippKlinger/vps-monitoring"]
 runbook_repos = ["PhilippKlinger/vps-edge", "PhilippKlinger/vps-monitoring", "PhilippKlinger/videoflix-deploy"]

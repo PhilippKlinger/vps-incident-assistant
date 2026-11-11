@@ -149,7 +149,7 @@ def analyze(
             raw = ollama.chat(messages, schema)
             return validate_analysis(raw, ctx)
         except httpx.TimeoutException as error:
-            reason = _failed("timeout", error)
+            reason = _failed("model timed out", error)
         except (httpx.RequestError, httpx.HTTPStatusError, _BadResponse) as error:
             reason = _failed("model unreachable", error)
         except AnalysisRejected as error:
