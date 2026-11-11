@@ -7,7 +7,7 @@ from assistant.llm import OllamaClient
 from evals.baselines import Answer
 from evals.meter import NullMeter
 from evals.runner import run_candidate, run_case
-from tests.evals_support import load_fixture_set
+from tests.evals_support import FIXTURES, load_fixture_set
 
 
 def _analysis(change="C1", runbook="vps-edge#upstream-502", summary="The proxy drops requests."):
@@ -154,3 +154,59 @@ def test_candidate_summary():
     assert result["latency_p95_s"] >= 0
     assert result["cpu_s_mean"] == 4.5
     assert result["ram_peak_mib_max"] == 1234.5
+
+
+def _main(*argv):
+    from evals.__main__ import main
+
+    return main([*argv, "--cases", str(FIXTURES / "cases"), "--data", str(FIXTURES)])
+
+
+def test_cli_run_writes_a_candidate_file(tmp_path, monkeypatch):
+    client = httpx.Client(transport=httpx.MockTransport(lambda r: _reply(_analysis())))
+    monkeypatch.setattr("evals.__main__._client", lambda: client)
+    out = tmp_path / "run.json"
+
+    code = _main("run", "--model", "m", "--only", "app-01-cors", "--out", str(out))
+
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert code == 0
+    assert data["model"] == "m"
+    assert [run["case_id"] for run in data["runs"]] == ["app-01-cors"]
+
+
+def test_cli_run_rejects_an_unknown_case_id(tmp_path):
+    try:
+        _main("run", "--model", "m", "--only", "nope", "--out", str(tmp_path / "x.json"))
+    except SystemExit as exit_:
+        assert "Unknown case ids: nope" in str(exit_)
+    else:
+        raise AssertionError("expected SystemExit")
+
+
+def test_cli_report_writes_json_and_markdown(tmp_path, monkeypatch):
+    client = httpx.Client(transport=httpx.MockTransport(lambda r: _reply(_analysis())))
+    monkeypatch.setattr("evals.__main__._client", lambda: client)
+    run_file = tmp_path / "run.json"
+    _main("run", "--model", "m", "--out", str(run_file))
+
+    code = _main("report", "--runs", str(run_file), "--out-dir", str(tmp_path / "out"))
+
+    assert code == 0
+    assert (tmp_path / "out" / "report.json").is_file()
+    assert "# Incident assistant eval report" in (tmp_path / "out" / "report.md").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_cli_candidates_prints_matrix_with_an_empty_smoke_list(capsys):
+    assert _main("candidates") == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert [c["model"] for c in data["matrix"]] == [
+        "qwen3.5:9b-q4_K_M",
+        "qwen2.5-coder:7b-instruct-q4_K_M",
+        "qwen3.5:4b-q4_K_M",
+    ]
+    assert data["smoke_model"] == "qwen3.5:4b-q4_K_M"
+    assert data["smoke_cases"] == []
