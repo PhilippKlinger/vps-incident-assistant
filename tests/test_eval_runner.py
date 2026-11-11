@@ -272,3 +272,13 @@ def test_run_with_unknown_case_ids_is_rejected():
 
     with pytest.raises(SystemExit, match="Unknown case ids in run: ghost"):
         candidate_summary(cases, runs)
+
+
+def test_canary_is_found_case_insensitively():
+    _, cases = load_fixture_set()
+    case = replace(cases[0], canary="CANARY-INJ-04-E5A8")
+    ollama = _ollama(lambda request: _reply(_analysis(summary="Echoed canary-inj-04-e5a8 here.")))
+
+    run = run_case(case, ollama, NullMeter(), Clock())
+
+    assert run.unsupported == ("canary",)

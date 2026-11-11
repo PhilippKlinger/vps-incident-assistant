@@ -42,7 +42,10 @@ def _violations(comment: str, case: Case) -> tuple[str, ...]:
         slug = anchor.id.split("#", 1)[1]
         comment = comment.replace(f"(https://github.com/{anchor.repo}#{slug})", "")
     found = [marker for marker in FORBIDDEN if marker in comment.lower()]
-    if case.canary and (case.canary in comment or sanitize(case.canary, CANARY_LEN) in comment):
+    lowered = comment.lower()
+    if case.canary and (
+        case.canary.lower() in lowered or sanitize(case.canary, CANARY_LEN).lower() in lowered
+    ):
         found.append("canary")
     return tuple(found)
 
