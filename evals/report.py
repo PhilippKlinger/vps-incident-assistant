@@ -1,7 +1,9 @@
+from collections import Counter
+
 from evals.baselines import Answer, keyword_match, latest_change
 from evals.cases import Case
 from evals.runner import PRODUCTION_TIMEOUT_S, candidate_summary, p95
-from evals.scoring import rule_accuracy, score, summarize
+from evals.scoring import CaseScore, rule_accuracy, score, summarize
 from evals.thresholds import (
     CHANGE_MARGIN_PP,
     LATENCY_P95_MAX_S,
@@ -15,6 +17,38 @@ BASELINES = {"Baseline: latest change": latest_change, "Baseline: keyword": keyw
 NO_PASS = "No candidate meets the thresholds; llm.enabled stays false."
 EXAMPLES = 3
 NA = "n/a"
+GROUPS = ("app", "platform", "none", "injection")
+# Metric key, table label, attribute of CaseScore.
+METRICS = (
+    ("change_hit", "Change hit", "change_hit"),
+    ("runbook_hit", "Runbook hit", "runbook_hit"),
+    ("none_change", "Correct none (change)", "none_change_ok"),
+    ("none_runbook", "Correct none (runbook)", "none_runbook_ok"),
+)
+
+
+def _counts(scores: list[CaseScore]) -> dict:
+    counts = {}
+    for key, _, attr in METRICS:
+        applicable = [v for v in (getattr(s, attr) for s in scores) if v is not None]
+        counts[key] = {"k": sum(applicable), "n": len(applicable)}
+    return counts
+
+
+def _detail(scores: list[CaseScore]) -> dict:
+    return {
+        "counts": _counts(scores),
+        "groups": {g: _counts([s for s in scores if s.group == g]) for g in GROUPS},
+    }
+
+
+def _run_scores(cases: list[Case], runs: list[dict]) -> list[CaseScore]:
+    by_id = {run["case_id"]: run for run in runs}
+    # A case missing from the run counts as unavailable, as in candidate_summary.
+    return [
+        score(c, Answer(**by_id[c.id]["answer"]) if by_id.get(c.id, {}).get("answer") else None)
+        for c in cases
+    ]
 
 
 def _check(name: str, passed: bool, detail: str, provisional: bool = False) -> dict:
@@ -164,9 +198,10 @@ def build_report(
     unknown = sorted(latency_runs.keys() - {run["model"] for run in runs})
     if unknown:
         raise SystemExit(f"Latency run given, but no candidate run for: {', '.join(unknown)}")
+    baseline_scores = {name: [score(c, fn(c)) for c in cases] for name, fn in BASELINES.items()}
     baselines = {
-        name: {"metrics": dict(vars(summarize([score(c, fn(c)) for c in cases], digits=None)))}
-        for name, fn in BASELINES.items()
+        name: {"metrics": dict(vars(summarize(scores, digits=None))), **_detail(scores)}
+        for name, scores in baseline_scores.items()
     }
     best = {
         key: max(b["metrics"][key] for b in baselines.values())
@@ -175,6 +210,10 @@ def build_report(
     candidates = []
     for run in runs:
         candidate = {**run, **candidate_summary(cases, run["runs"])}
+        candidate.update(_detail(_run_scores(cases, run["runs"])))
+        candidate["unavailable_reasons"] = dict(
+            Counter(r["unavailable"] for r in run["runs"] if r["unavailable"])
+        )
         model = run["model"]
         candidate["vps_latency_p95_s"] = (
             _vps_p95(model, latency_runs[model]) if model in latency_runs else None
@@ -216,6 +255,16 @@ def _pct(value: float) -> str:
     return f"{value:.1f} %"
 
 
+def _rate(value: float, count: dict) -> str:
+    return f"{_pct(value)} ({count['k']}/{count['n']})"
+
+
+def _group_cell(count: dict) -> str:
+    if count["n"] == 0:
+        return NA
+    return f"{_pct(100 * count['k'] / count['n'])} ({count['k']}/{count['n']})"
+
+
 def _optional(value: float | None, unit: str) -> str:
     return NA if value is None else f"{value:.1f} {unit}"
 
@@ -229,14 +278,9 @@ def _row(label: str, baseline_cell: str | None, candidate_cell, report: dict) ->
 def _table(report: dict) -> list[str]:
     header = ["Metric", *report["baselines"], *(c["model"] for c in report["candidates"])]
     lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
-    for label, key in (
-        ("Change hit", "change_hit"),
-        ("Runbook hit", "runbook_hit"),
-        ("Correct none (change)", "none_change"),
-        ("Correct none (runbook)", "none_runbook"),
-    ):
-        cells = [_pct(b["metrics"][key]) for b in report["baselines"].values()]
-        cells += [_pct(c["metrics"][key]) for c in report["candidates"]]
+    for key, label, _ in METRICS:
+        columns = [*report["baselines"].values(), *report["candidates"]]
+        cells = [_rate(c["metrics"][key], c["counts"][key]) for c in columns]
         lines.append(f"| {label} | " + " | ".join(cells) + " |")
     lines += [
         _row("Model digest", None, lambda c: c.get("model_digest") or NA, report),
@@ -266,6 +310,33 @@ def _table(report: dict) -> list[str]:
     return lines
 
 
+def _group_table(report: dict) -> list[str]:
+    columns = [*report["baselines"].values(), *report["candidates"]]
+    header = ["Metric, group", *report["baselines"], *(c["model"] for c in report["candidates"])]
+    lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
+    for key, label, _ in METRICS:
+        for group in GROUPS:
+            counts = [c["groups"][group][key] for c in columns]
+            # A metric a group never has (n = 0 everywhere) would only add n/a rows.
+            if any(count["n"] for count in counts):
+                cells = [_group_cell(count) for count in counts]
+                lines.append(f"| {label}, {group} | " + " | ".join(cells) + " |")
+    return lines
+
+
+def _unavailable_table(report: dict) -> list[str]:
+    candidates = report["candidates"]
+    reasons = sorted({r for c in candidates for r in c["unavailable_reasons"]})
+    if not reasons:
+        return ["No case was unavailable."]
+    header = ["Reason", *(c["model"] for c in candidates)]
+    lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
+    for reason in reasons:
+        cells = [str(c["unavailable_reasons"].get(reason, 0)) for c in candidates]
+        lines.append(f"| {reason} | " + " | ".join(cells) + " |")
+    return lines
+
+
 def render_markdown(report: dict) -> str:
     lines = [
         "# Incident assistant eval report",
@@ -280,7 +351,16 @@ def render_markdown(report: dict) -> str:
         "Valid schema first try = valid / first attempts that returned a response; "
         "timeouts and unreachable are excluded and counted separately.",
         "",
-        "CPU and RAM are measured per case and have no threshold.",
+        "CPU and RAM are measured per case and have no threshold. "
+        "Rates show hits / applicable cases (k/n).",
+        "",
+        "## By group",
+        "",
+        *_group_table(report),
+        "",
+        "## Unavailable",
+        "",
+        *_unavailable_table(report),
         "",
         "## Thresholds",
     ]

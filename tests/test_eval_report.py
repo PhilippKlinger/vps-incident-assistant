@@ -120,7 +120,7 @@ def test_table_has_baseline_and_candidate_columns_with_one_decimal():
     assert "| Latency p95 (GitHub runner) | n/a | n/a | 10.0 s | 10.0 s |" in text
     assert "| Mean CPU | n/a | n/a | 20.0 s | 20.0 s |" in text
     assert "| Max RAM | n/a | n/a | 2048.0 MiB | 2048.0 MiB |" in text
-    assert "| Change hit | 0.0 % |" in text
+    assert "| Change hit | 0.0 % (0/1) |" in text
 
 
 def test_schema_denominator_and_first_attempt_failures_are_reported():
@@ -279,3 +279,58 @@ def test_a_latency_run_for_an_unknown_model_or_without_cases_is_rejected():
         build_report(cases, [good], {"ghost:1b": _vps_file("ghost:1b", 1.0)})
     with pytest.raises(SystemExit, match="has no cases"):
         build_report(cases, [good], {"good:1b": {"model": "good:1b", "runs": []}})
+
+
+def test_every_metric_shows_k_over_n_and_json_carries_k_and_n():
+    cases = _cases()
+
+    report = _build(cases, [_good(cases), _bad(cases)])
+    text = render_markdown(report)
+
+    assert "| Change hit | 0.0 % (0/1) | 0.0 % (0/1) | 100.0 % (1/1) | 0.0 % (0/1) |" in text
+    assert "| Correct none (change) | 0.0 % (0/1) |" in text
+    assert report["candidates"][0]["counts"]["change_hit"] == {"k": 1, "n": 1}
+    assert report["baselines"]["Baseline: keyword"]["counts"]["none_runbook"]["n"] == 1
+
+
+def test_group_rows_show_only_defined_metrics_and_n_a_for_empty_groups():
+    cases = _cases()
+
+    report = _build(cases, [_good(cases)])
+    text = render_markdown(report)
+
+    assert "## By group" in text
+    assert "| Change hit, app | 0.0 % (0/1) | 0.0 % (0/1) | 100.0 % (1/1) |" in text
+    assert "| Correct none (change), none |" in text
+    assert "platform" not in text.split("## By group")[1].split("##")[0]
+    assert report["candidates"][0]["groups"]["app"]["change_hit"] == {"k": 1, "n": 1}
+    assert report["candidates"][0]["groups"]["platform"]["change_hit"] == {"k": 0, "n": 0}
+
+
+def test_unavailable_reasons_are_counted_per_model():
+    cases = _cases()
+    runs = [
+        {**_run("app-01-cors", None), "unavailable": "model timed out"},
+        _run("none-01-quiet", None),
+    ]
+    flaky = _candidate(cases, "flaky:1b", runs)
+
+    report = _build(cases, [flaky, _good(cases)])
+    text = render_markdown(report)
+
+    assert report["candidates"][0]["unavailable_reasons"] == {
+        "model timed out": 1,
+        "model unreachable": 1,
+    }
+    assert "## Unavailable" in text
+    assert "| Reason | flaky:1b | good:1b |" in text
+    assert "| model timed out | 1 | 0 |" in text
+    assert "| model unreachable | 1 | 0 |" in text
+
+
+def test_no_unavailable_section_rows_when_every_case_has_an_answer():
+    cases = _cases()
+
+    text = render_markdown(_build(cases, [_good(cases)]))
+
+    assert "No case was unavailable." in text
