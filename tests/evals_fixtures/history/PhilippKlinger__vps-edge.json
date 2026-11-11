@@ -1,0 +1,6 @@
+[
+  {"repo": "PhilippKlinger/vps-edge", "sha": "814a76b1111111111111111111111111111111aa", "title": "docs: update readme",
+   "author": "PhilippKlinger", "committed_at": "2026-11-05T09:00:00+00:00", "files": ["README.md"], "patch": "diff --git a/README.md b/README.md\n+docs", "body": ""},
+  {"repo": "PhilippKlinger/vps-edge", "sha": "814a76b2222222222222222222222222222222bb", "title": "chore: bump caddy image",
+   "author": "PhilippKlinger", "committed_at": "2026-11-05T10:00:00+00:00", "files": ["compose.yaml"], "patch": "diff --git a/compose.yaml b/compose.yaml\n+image", "body": ""}
+]

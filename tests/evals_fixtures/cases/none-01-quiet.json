@@ -1,0 +1,14 @@
+{
+  "id": "none-01-quiet",
+  "group": "none",
+  "note": "A short outage with no related change.",
+  "event": {"monitor_name": "Videoflix · Web-App", "url": null,
+            "status": "down", "msg": "timeout of 48000ms exceeded", "time": "2026-11-06T08:00:00+00:00"},
+  "probe": null,
+  "history": [{"repo": "PhilippKlinger/vps-edge", "sha": "814a76b1", "minutes_before": 120},
+              {"repo": "PhilippKlinger/vps-edge", "sha": "814a76b2", "minutes_before": 90}],
+  "cause": null,
+  "deploy_runs": [],
+  "canary": null,
+  "expected": {"category": "unknown", "suspected_change": "none", "runbook": "none"}
+}
