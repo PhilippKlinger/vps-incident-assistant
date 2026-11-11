@@ -42,6 +42,16 @@ def test_duplicate_down_is_ignored():
     assert _decide("down", _issue(API)) is Action.IGNORE
 
 
+def test_duplicate_down_at_window_edge_is_ignored():
+    assert _decide("down", _issue(API, age=WINDOW)) is Action.IGNORE
+
+
+def test_same_monitor_down_after_window_appends():
+    # A lost "up" must not silence the monitor for good.
+    issue = _issue(API, age=WINDOW + timedelta(seconds=1))
+    assert _decide("down", issue) is Action.APPEND
+
+
 def test_down_for_new_monitor_appends():
     assert _decide("down", _issue(WEB)) is Action.APPEND
 

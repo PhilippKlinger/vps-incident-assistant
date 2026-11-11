@@ -264,6 +264,20 @@ def test_pipeline_ignores_duplicate_down():
     assert s.probe_calls == []
 
 
+def test_pipeline_appends_same_monitor_down_after_window():
+    s = Setup()
+    s.store.seed(
+        7,
+        ["incident", "project:videoflix", "monitor:videoflix-api"],
+        created_at=NOW - timedelta(hours=2),
+        updated_at=NOW - timedelta(minutes=11),
+    )
+    handle_event(_event("Videoflix · API"), s.deps)
+    assert "Weiterer Alarm" in s.store.calls("POST", "/comments")[0]["body"]
+    assert s.store.calls("POST", "/issues") == []
+    assert s.telegram == []
+
+
 def test_issue_unavailable_is_logged_and_swallowed(caplog):
     s = Setup()
     s.deps.issues = IssueClient(
