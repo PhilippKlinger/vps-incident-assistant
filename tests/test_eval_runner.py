@@ -576,3 +576,74 @@ def test_cli_run_records_provenance(tmp_path, monkeypatch):
 
     data = json.loads(out.read_text(encoding="utf-8"))
     assert (data["model_digest"], data["ollama_version"]) == ("abc123", "0.40.12")
+
+
+def _run_file(tmp_path, monkeypatch, model="m", name="run.json"):
+    client = httpx.Client(transport=httpx.MockTransport(lambda r: _reply(_analysis())))
+    monkeypatch.setattr("evals.__main__._client", lambda: client)
+    run_file = tmp_path / name
+    _main("run", "--model", model, "--out", str(run_file))
+    return run_file
+
+
+def _report_with(tmp_path, run_file, *specs):
+    args = ["report", "--runs", str(run_file), "--out-dir", str(tmp_path / "out")]
+    for spec in specs:
+        args += ["--latency-run", spec]
+    return _main(*args)
+
+
+def test_cli_latency_run_splits_on_the_last_equals_and_is_repeatable(tmp_path, monkeypatch):
+    run_file = _run_file(tmp_path, monkeypatch, model="a=b:1b")
+    other = _run_file(tmp_path, monkeypatch, model="c:1b", name="other.json")
+    latency = tmp_path / "latency.json"
+    latency.write_text('{"runs": [{"latency_s": 42.0}]}', encoding="utf-8")
+
+    code = _main(
+        "report", "--runs", str(run_file), str(other), "--out-dir", str(tmp_path / "out"),
+        "--latency-run", f"a=b:1b={latency}", "--latency-run", f"c:1b={latency}",
+    )  # fmt: skip
+
+    report = json.loads((tmp_path / "out" / "report.json").read_text(encoding="utf-8"))
+    assert code == 0
+    assert [c["vps_latency_p95_s"] for c in report["candidates"]] == [42.0, 42.0]
+
+
+@pytest.mark.parametrize("spec", ["no-separator", "=file.json", "model:1b="])
+def test_cli_latency_run_rejects_a_malformed_spec(tmp_path, monkeypatch, spec):
+    run_file = _run_file(tmp_path, monkeypatch)
+
+    with pytest.raises(SystemExit, match="MODEL=FILE"):
+        _report_with(tmp_path, run_file, spec)
+
+
+def test_cli_latency_run_rejects_an_unknown_model(tmp_path, monkeypatch):
+    run_file = _run_file(tmp_path, monkeypatch)
+    other = tmp_path / "other.json"
+    other.write_text('{"model": "ghost", "runs": [{"latency_s": 1.0}]}', encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="no candidate run for: ghost"):
+        _report_with(tmp_path, run_file, f"ghost={other}")
+
+
+def test_cli_latency_run_rejects_an_unreadable_file(tmp_path, monkeypatch):
+    run_file = _run_file(tmp_path, monkeypatch)
+
+    with pytest.raises(SystemExit, match="Cannot read latency run"):
+        _report_with(tmp_path, run_file, f"m={tmp_path / 'missing.json'}")
+
+
+def test_cli_latency_run_rejects_an_empty_run(tmp_path, monkeypatch):
+    run_file = _run_file(tmp_path, monkeypatch)
+    empty = tmp_path / "empty.json"
+    empty.write_text('{"model": "m", "runs": []}', encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="has no cases"):
+        _report_with(tmp_path, run_file, f"m={empty}")
+
+
+def test_p95_is_a_public_nearest_rank_helper():
+    from evals.runner import p95
+
+    assert p95([float(n) for n in range(1, 21)]) == 19.0
+    assert p95([]) == 0.0

@@ -1,6 +1,6 @@
 from evals.baselines import Answer, keyword_match, latest_change
 from evals.cases import Case
-from evals.runner import PRODUCTION_TIMEOUT_S, _p95, candidate_summary
+from evals.runner import PRODUCTION_TIMEOUT_S, candidate_summary, p95
 from evals.scoring import rule_accuracy, score, summarize
 from evals.thresholds import (
     CHANGE_MARGIN_PP,
@@ -144,7 +144,7 @@ def _vps_p95(model: str, latency_run: dict) -> float:
     if not runs:
         raise SystemExit(f"Latency run for {model} has no cases")
     # A sample is enough here; quality metrics never read this file.
-    return _p95([run["latency_s"] for run in runs])
+    return p95([run["latency_s"] for run in runs])
 
 
 def _verdict(passing: list[str], pending: list[str]) -> str:
