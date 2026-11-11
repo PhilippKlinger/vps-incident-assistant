@@ -47,19 +47,21 @@ def score(case: Case, answer: Answer | None) -> CaseScore:
     )
 
 
-def _percent(values: list[bool | None]) -> float:
+def _percent(values: list[bool | None], digits: int | None = 1) -> float:
     applicable = [v for v in values if v is not None]
     if not applicable:
         return 0.0
-    return round(100 * sum(applicable) / len(applicable), 1)
+    value = 100 * sum(applicable) / len(applicable)
+    return value if digits is None else round(value, digits)
 
 
-def summarize(scores: list[CaseScore]) -> Metrics:
+def summarize(scores: list[CaseScore], digits: int | None = 1) -> Metrics:
+    # digits=None keeps the raw values, for comparing against thresholds.
     return Metrics(
-        change_hit=_percent([s.change_hit for s in scores]),
-        runbook_hit=_percent([s.runbook_hit for s in scores]),
-        none_change=_percent([s.none_change_ok for s in scores]),
-        none_runbook=_percent([s.none_runbook_ok for s in scores]),
+        change_hit=_percent([s.change_hit for s in scores], digits),
+        runbook_hit=_percent([s.runbook_hit for s in scores], digits),
+        none_change=_percent([s.none_change_ok for s in scores], digits),
+        none_runbook=_percent([s.none_runbook_ok for s in scores], digits),
     )
 
 

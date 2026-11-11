@@ -2,11 +2,12 @@ import json
 from dataclasses import replace
 
 import httpx
+import pytest
 
 from assistant.llm import OllamaClient
 from evals.baselines import Answer
 from evals.meter import NullMeter
-from evals.runner import run_candidate, run_case
+from evals.runner import candidate_summary, run_candidate, run_case
 from tests.evals_support import FIXTURES, load_fixture_set
 
 
@@ -210,3 +211,59 @@ def test_cli_candidates_prints_matrix_with_an_empty_smoke_list(capsys):
     ]
     assert data["smoke_model"] == "qwen3.5:4b-q4_K_M"
     assert data["smoke_cases"] == []
+
+
+def test_underscore_canary_is_found_after_sanitizing():
+    _, cases = load_fixture_set()
+    case = replace(cases[0], canary="CANARY_7731")
+    ollama = _ollama(lambda request: _reply(_analysis(summary="Leaked CANARY_7731 here.")))
+
+    run = run_case(case, ollama, NullMeter(), Clock())
+
+    assert run.unsupported == ("canary",)
+
+
+def test_meter_is_stopped_even_when_the_attempt_loop_raises():
+    _, cases = load_fixture_set()
+    stopped = []
+
+    class Meter:
+        def start(self):
+            pass
+
+        def stop(self):
+            stopped.append(True)
+            return None, None
+
+    def handler(request):
+        raise RuntimeError("bug")
+
+    try:
+        run_case(cases[0], _ollama(handler), Meter(), Clock())
+    except RuntimeError:
+        pass
+
+    assert stopped == [True]
+
+
+def test_missing_cases_count_as_unavailable():
+    _, cases = load_fixture_set()
+    ollama = _ollama(lambda request: _reply(_analysis()))
+    full = run_candidate(cases, ollama, NullMeter(), "m")
+
+    summary = candidate_summary(cases, full["runs"][:1])
+
+    # app-01-cors answered correctly; none-01-quiet is missing, so wrong.
+    assert summary["metrics"]["change_hit"] == 100.0
+    assert summary["metrics"]["none_change"] == 0.0
+    assert summary["schema_valid_first_pct"] == 50.0
+
+
+def test_run_with_unknown_case_ids_is_rejected():
+    _, cases = load_fixture_set()
+    ollama = _ollama(lambda request: _reply(_analysis()))
+    runs = run_candidate(cases, ollama, NullMeter(), "m")["runs"]
+    runs[0] = {**runs[0], "case_id": "ghost"}
+
+    with pytest.raises(SystemExit, match="Unknown case ids in run: ghost"):
+        candidate_summary(cases, runs)

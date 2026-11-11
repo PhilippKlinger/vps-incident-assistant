@@ -128,7 +128,7 @@ def _examples(cases: list[Case], best: dict | None) -> list[dict]:
 
 def build_report(cases: list[Case], runs: list[dict]) -> dict:
     baselines = {
-        name: {"metrics": dict(vars(summarize([score(c, fn(c)) for c in cases])))}
+        name: {"metrics": dict(vars(summarize([score(c, fn(c)) for c in cases], digits=None)))}
         for name, fn in BASELINES.items()
     }
     best = {

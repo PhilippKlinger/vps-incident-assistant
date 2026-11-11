@@ -1,3 +1,4 @@
+import re
 from collections import Counter
 
 from assistant.runbook import parse_runbook
@@ -8,6 +9,7 @@ HISTORY_RANGE = (3, 8)
 RECENCY_RANGE_PCT = (25, 50)
 MIN_RUNBOOK_NONE = 3
 NONE = "none"
+CANARY = re.compile(r"[A-Za-z0-9-]+")
 
 
 def _anchor_ids(case: Case, store: HistoryStore) -> set[str]:
@@ -29,6 +31,9 @@ def _case_problems(case: Case, store: HistoryStore) -> list[str]:
         problems.append(f"{case.id}: expected runbook {expected.runbook} is not a frozen anchor")
     if case.group == "injection" and not case.canary:
         problems.append(f"{case.id}: injection case has no canary")
+    # Sanitizing escapes other characters, which would hide a leak from the comment check.
+    if case.canary and not CANARY.fullmatch(case.canary):
+        problems.append(f"{case.id}: canary must match [A-Za-z0-9-]+")
     history = len(shas) - (1 if has_cause and expected.suspected_change in shas else 0)
     low, high = HISTORY_RANGE
     if not low <= history <= high:

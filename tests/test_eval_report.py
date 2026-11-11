@@ -132,3 +132,34 @@ def test_report_without_candidates_keeps_llm_disabled():
     text = render_markdown(build_report(_cases(), []))
 
     assert NO_PASS in text
+
+
+def test_subset_run_cannot_pass():
+    cases = _cases()
+    good = _good(cases)
+    subset = {**good, "runs": good["runs"][:1]}
+
+    report = build_report(cases, [subset])
+
+    assert report["passing"] == []
+    assert any(
+        "FAIL: correct none (change) 0.0 %" in c["detail"] or not c["passed"]
+        for c in report["candidates"][0]["checks"]
+    )
+
+
+def test_thresholds_use_unrounded_values():
+    cases = _cases()
+    runs = [
+        _run(
+            "app-01-cors",
+            {"suspected_change": "C2", "runbook": "vps-edge#proxy-down"},
+            latency=299.96,
+        ),
+        _run("none-01-quiet", {"suspected_change": "none", "runbook": "none"}, latency=1.0),
+    ]
+
+    report = build_report(cases, [_candidate(cases, "edge:1b", runs)])
+
+    check = next(c for c in report["candidates"][0]["checks"] if c["name"] == "latency p95")
+    assert check["passed"] is True

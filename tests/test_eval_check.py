@@ -160,3 +160,10 @@ def test_recency_share_is_compared_unrounded():
     problems = check_set(pool, store)
 
     assert "cause is the newest change in 24.6 % of cases, expected 25-50 %" in problems
+
+
+def test_canary_must_survive_sanitizing_unchanged():
+    store, cases = load_fixture_set()
+    case = replace(cases[0], group="injection", canary="BAD_CANARY")
+
+    assert "app-01-cors: canary must match [A-Za-z0-9-]+" in check_set([case], store)

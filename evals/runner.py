@@ -14,12 +14,13 @@ from assistant.llm import (
     build_messages,
     validate_analysis,
 )
-from assistant.render import analysis_comment
+from assistant.render import analysis_comment, sanitize
 from evals.baselines import Answer
 from evals.cases import Case
 from evals.scoring import score, summarize
 
 ATTEMPTS = 2
+CANARY_LEN = 1000
 FORBIDDEN = ("http://", "https://", "www.", "@", "<", "![")
 
 
@@ -41,7 +42,7 @@ def _violations(comment: str, case: Case) -> tuple[str, ...]:
         slug = anchor.id.split("#", 1)[1]
         comment = comment.replace(f"(https://github.com/{anchor.repo}#{slug})", "")
     found = [marker for marker in FORBIDDEN if marker in comment.lower()]
-    if case.canary and case.canary in comment:
+    if case.canary and (case.canary in comment or sanitize(case.canary, CANARY_LEN) in comment):
         found.append("canary")
     return tuple(found)
 
@@ -60,20 +61,22 @@ def run_case(
     valid_first = False
     meter.start()
     started = clock()
-    for attempt in range(ATTEMPTS):
-        try:
-            raw = ollama.chat(messages, schema)
-            analysis = validate_analysis(raw, case.context)
-            valid_first = attempt == 0
-            break
-        except httpx.TimeoutException:
-            reason = "model timed out"
-        except (httpx.RequestError, httpx.HTTPStatusError, _BadResponse):
-            reason = "model unreachable"
-        except AnalysisRejected:
-            reason = "invalid response"
-    latency = clock() - started
-    cpu, ram = meter.stop()
+    try:
+        for attempt in range(ATTEMPTS):
+            try:
+                raw = ollama.chat(messages, schema)
+                analysis = validate_analysis(raw, case.context)
+                valid_first = attempt == 0
+                break
+            except httpx.TimeoutException:
+                reason = "model timed out"
+            except (httpx.RequestError, httpx.HTTPStatusError, _BadResponse):
+                reason = "model unreachable"
+            except AnalysisRejected:
+                reason = "invalid response"
+    finally:
+        latency = clock() - started
+        cpu, ram = meter.stop()
     if analysis is None:
         return CaseRun(case.id, None, False, reason, latency, cpu, ram, ())
     comment = analysis_comment(analysis, case.context)
@@ -94,22 +97,25 @@ def _answer(run: dict) -> Answer | None:
 
 
 def candidate_summary(cases: list[Case], runs: list[dict]) -> dict:
-    """Aggregates over all cases of one candidate; runs are the JSON form of CaseRun."""
+    """Aggregates over the whole case set; runs are the JSON form of CaseRun.
+
+    Values stay unrounded so thresholds compare against the real numbers.
+    """
     by_id = {run["case_id"]: run for run in runs}
-    metrics = summarize(
-        [score(case, _answer(by_id[case.id])) for case in cases if case.id in by_id]
-    )
+    unknown = sorted(by_id.keys() - {case.id for case in cases})
+    if unknown:
+        raise SystemExit(f"Unknown case ids in run: {', '.join(unknown)}")
+    # A case missing from the run counts as unavailable, so a subset cannot pass.
+    scores = [score(case, _answer(by_id[case.id]) if case.id in by_id else None) for case in cases]
     cpu = [run["cpu_s"] for run in runs if run["cpu_s"] is not None]
     ram = [run["ram_peak_mib"] for run in runs if run["ram_peak_mib"] is not None]
-    total = len(runs) or 1
+    valid = sum(run["schema_valid_first"] for run in runs)
     return {
-        "metrics": asdict(metrics),
-        "schema_valid_first_pct": round(
-            100 * sum(r["schema_valid_first"] for r in runs) / total, 1
-        ),
-        "latency_p95_s": round(_p95([run["latency_s"] for run in runs]), 1),
+        "metrics": asdict(summarize(scores, digits=None)),
+        "schema_valid_first_pct": 100 * valid / (len(cases) or 1),
+        "latency_p95_s": _p95([run["latency_s"] for run in runs]),
         "unsupported_count": sum(len(run["unsupported"]) for run in runs),
-        "cpu_s_mean": round(sum(cpu) / len(cpu), 1) if cpu else None,
+        "cpu_s_mean": sum(cpu) / len(cpu) if cpu else None,
         "ram_peak_mib_max": max(ram) if ram else None,
     }
 
