@@ -113,11 +113,11 @@ Projects with `llm = true`: Videoflix and the status page. Portfolio, Neuro Chec
 The stack lives in `/srv/incident` next to the other stacks. `compose.yaml` pins the assistant image by digest; `.env` may override `ASSISTANT_IMAGE`.
 
 1. Update `vps-monitoring` first (`docker compose up -d`). It creates the internal network `incident`, which this stack joins as an external network.
-2. Create `/srv/incident` and put `compose.yaml` and `.env` there (`chmod 600 .env`). Create the model directory; Ollama runs as UID 1000 with the bind mount `./models:/models`:
+2. Create `/srv/incident` and put `compose.yaml` and `.env` there (`chmod 600 .env`). Create the model directory; Ollama runs as UID 10002 (not the admin user) with the bind mount `./models:/models`:
 
    ```bash
    cd /srv/incident
-   sudo install -d -o 1000 -g 1000 models
+   sudo install -d -o 10002 -g 10002 models
    ```
 
 3. Pull the images and download the model once. Only the one-off `ollama-pull` service (profile `setup`) has internet access; the running Ollama never does.
