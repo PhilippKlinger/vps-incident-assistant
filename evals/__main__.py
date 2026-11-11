@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import sys
 import tomllib
 from pathlib import Path
@@ -7,10 +8,12 @@ from pathlib import Path
 import httpx
 
 from assistant.config import load_config
+from assistant.github_read import GitHubReader, GitHubUnavailable, make_client
 from assistant.llm import OllamaClient
 from evals.baselines import keyword_match, latest_change
 from evals.cases import Case, HistoryStore, load_cases
 from evals.check import check_set
+from evals.freeze import freeze
 from evals.meter import DockerMeter, NullMeter
 from evals.report import build_report, render_markdown
 from evals.runner import run_candidate
@@ -94,9 +97,24 @@ def _candidates(args: argparse.Namespace) -> int:
     return 0
 
 
+def _freeze(args: argparse.Namespace) -> int:
+    token = os.environ.get("GITHUB_TOKEN")
+    if not token:
+        raise SystemExit("GITHUB_TOKEN is required to freeze eval data")
+    project = load_config(args.config).project_for("Videoflix · Web-App")
+    try:
+        freeze(GitHubReader(make_client(token)), project.repos, project.runbook_repos, args.data)
+    except GitHubUnavailable as exc:
+        raise SystemExit(f"Freeze failed: {exc}") from None
+    print(f"Frozen {len(project.repos)} repos into {args.data}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m evals")
-    parser.add_argument("command", choices=["check", "baselines", "run", "report", "candidates"])
+    parser.add_argument(
+        "command", choices=["check", "baselines", "freeze", "run", "report", "candidates"]
+    )
     parser.add_argument("--cases", type=Path, default=HERE / "cases")
     parser.add_argument("--data", type=Path, default=HERE)
     parser.add_argument("--config", type=Path, default=HERE.parent / "config.toml")
@@ -111,6 +129,7 @@ def main(argv: list[str] | None = None) -> int:
     commands = {
         "check": _check,
         "baselines": _baselines,
+        "freeze": _freeze,
         "run": _run,
         "report": _report,
         "candidates": _candidates,
