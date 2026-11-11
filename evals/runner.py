@@ -1,8 +1,11 @@
+import json
 import math
+import os
 import secrets
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
+from pathlib import Path
 
 import httpx
 
@@ -155,6 +158,22 @@ def candidate_summary(cases: list[Case], runs: list[dict]) -> dict:
     }
 
 
-def run_candidate(cases: list[Case], ollama: OllamaClient, meter, model: str) -> dict:
-    runs = [asdict(run_case(case, ollama, meter)) for case in cases]
-    return {"model": model, "runs": runs, **candidate_summary(cases, runs)}
+def _write_atomic(path: Path, result: dict) -> None:
+    # Replace instead of rewrite, so a kill mid-write cannot leave half a file.
+    temp = path.with_name(path.name + ".tmp")
+    temp.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    os.replace(temp, path)
+
+
+def run_candidate(
+    cases: list[Case], ollama: OllamaClient, meter, model: str, out: Path | None = None
+) -> dict:
+    runs: list[dict] = []
+    result: dict = {}
+    for case in cases:
+        runs.append(asdict(run_case(case, ollama, meter)))
+        result = {"model": model, "runs": runs, **candidate_summary(cases, runs)}
+        # A full run takes hours; keep what is done if the job dies.
+        if out:
+            _write_atomic(out, result)
+    return result or {"model": model, "runs": runs, **candidate_summary(cases, runs)}

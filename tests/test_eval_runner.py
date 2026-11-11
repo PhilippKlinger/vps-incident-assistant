@@ -395,3 +395,33 @@ def test_cases_over_the_production_timeout_are_counted():
 
     runs[1]["unavailable"] = None
     assert candidate_summary(cases, runs)["over_production_timeout"] == 1
+
+
+def test_a_crash_after_case_k_leaves_k_cases_on_disk(tmp_path):
+    _, cases = load_fixture_set()
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        if len(calls) == 2:
+            raise RuntimeError("runner died")
+        return _reply(_analysis())
+
+    out = tmp_path / "run.json"
+
+    with pytest.raises(RuntimeError):
+        run_candidate(cases, _ollama(handler), NullMeter(), "m", out=out)
+
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert [run["case_id"] for run in data["runs"]] == [cases[0].id]
+    assert data["model"] == "m"
+    assert list(tmp_path.iterdir()) == [out]
+
+
+def test_finished_run_file_holds_every_case(tmp_path):
+    _, cases = load_fixture_set()
+    out = tmp_path / "run.json"
+
+    result = run_candidate(cases, _ollama(lambda r: _reply(_analysis())), NullMeter(), "m", out=out)
+
+    assert json.loads(out.read_text(encoding="utf-8")) == json.loads(json.dumps(result))

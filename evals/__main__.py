@@ -70,8 +70,7 @@ def _run(args: argparse.Namespace) -> int:
         cases = [case for case in cases if case.id in wanted]
     ollama = OllamaClient(_client(), args.ollama_url, args.model, args.timeout)
     meter = DockerMeter(args.container) if args.container else NullMeter()
-    result = run_candidate(cases, ollama, meter, args.model)
-    args.out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    run_candidate(cases, ollama, meter, args.model, out=args.out)
     print(f"{args.model}: {len(cases)} cases, results in {args.out}")
     return 0
 
