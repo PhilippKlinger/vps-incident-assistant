@@ -153,6 +153,15 @@ jobs:
             esac
           done
 
+      - name: Ollama runs as its own non-root user
+        run: |
+          set -Eeuo pipefail
+          id="$(docker compose ps -q ollama)"
+          test -n "${id}"
+          user="$(docker inspect --format '{{.Config.User}}' "${id}")"
+          echo "ollama user: ${user:-<empty>}"
+          test "${user}" = "10002:10002"
+
       # Ollama has no route outside and cannot reach Kuma: only the internal network "llm".
       - name: Ollama is only in the internal network llm
         run: |
