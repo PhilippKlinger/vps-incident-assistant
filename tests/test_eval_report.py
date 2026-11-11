@@ -135,6 +135,17 @@ def test_cases_over_the_production_timeout_are_shown():
     assert "| Cases over the production timeout (300 s) | n/a | n/a | 1 |" in text
 
 
+def test_provenance_is_shown_and_may_be_missing():
+    cases = _cases()
+    known = {**_good(cases, "a:1b"), "model_digest": "abc123", "ollama_version": "0.40.12"}
+    unknown = _good(cases, "b:1b")
+
+    text = render_markdown(build_report(cases, [known, unknown]))
+
+    assert "| Model digest | n/a | n/a | abc123 | n/a |" in text
+    assert "| Ollama version | n/a | n/a | 0.40.12 | n/a |" in text
+
+
 def test_rule_accuracy_and_examples_are_listed():
     cases = _cases()
 

@@ -186,6 +186,8 @@ def _table(report: dict) -> list[str]:
         cells += [_pct(c["metrics"][key]) for c in report["candidates"]]
         lines.append(f"| {label} | " + " | ".join(cells) + " |")
     lines += [
+        _row("Model digest", None, lambda c: c.get("model_digest") or NA, report),
+        _row("Ollama version", None, lambda c: c.get("ollama_version") or NA, report),
         _row("Valid schema first try", None, lambda c: _pct(c["schema_valid_first_pct"]), report),
         _row("First-attempt timeouts", None, lambda c: str(c["first_attempt_timeouts"]), report),
         _row(

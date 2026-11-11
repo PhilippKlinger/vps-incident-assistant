@@ -166,6 +166,31 @@ def _write_atomic(path: Path, result: dict) -> None:
     os.replace(temp, path)
 
 
+def fetch_provenance(client: httpx.Client, url: str, model: str) -> dict:
+    # Pins what was measured: the tag alone does not prove the same weights ran twice.
+    base = url.rstrip("/")
+
+    def get(path: str):
+        try:
+            response = client.get(f"{base}{path}", timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except (httpx.HTTPError, ValueError):
+            return None
+
+    tags = get("/api/tags")
+    version = get("/api/version")
+    models = tags.get("models") if isinstance(tags, dict) else None
+    entries = models if isinstance(models, list) else []
+    digest = next(
+        (m.get("digest") for m in entries if isinstance(m, dict) and m.get("name") == model), None
+    )
+    return {
+        "model_digest": digest,
+        "ollama_version": version.get("version") if isinstance(version, dict) else None,
+    }
+
+
 def describe_run(run: dict) -> str:
     # One progress line per case, so a CI log shows whether the model answered at all.
     answer = run["answer"]
@@ -189,6 +214,7 @@ def run_candidate(
     model: str,
     out: Path | None = None,
     on_case: Callable[[dict], None] | None = None,
+    provenance: dict | None = None,
 ) -> dict:
     runs: list[dict] = []
     result: dict = {}
@@ -196,8 +222,9 @@ def run_candidate(
         runs.append(asdict(run_case(case, ollama, meter)))
         if on_case:
             on_case(runs[-1])
-        result = {"model": model, "runs": runs, **candidate_summary(cases, runs)}
+        result = {"model": model, **(provenance or {}), "runs": runs}
+        result |= candidate_summary(cases, runs)
         # A full run takes hours; keep what is done if the job dies.
         if out:
             _write_atomic(out, result)
-    return result or {"model": model, "runs": runs, **candidate_summary(cases, runs)}
+    return result or {"model": model, **(provenance or {}), "runs": runs}

@@ -8,7 +8,7 @@ import pytest
 from assistant.llm import OllamaClient
 from evals.baselines import Answer
 from evals.meter import NullMeter
-from evals.runner import candidate_summary, run_candidate, run_case
+from evals.runner import candidate_summary, fetch_provenance, run_candidate, run_case
 from tests.evals_support import FIXTURES, load_fixture_set
 
 
@@ -372,8 +372,7 @@ def test_cli_run_passes_the_attempt_timeout_to_ollama(tmp_path, monkeypatch):
         seen.append(request.extensions["timeout"]["read"])
         return _reply(_analysis())
 
-    client = httpx.Client(transport=httpx.MockTransport(handler))
-    monkeypatch.setattr("evals.__main__._client", lambda: client)
+    _patch_client(monkeypatch, _chat_only(handler))
 
     _main("run", "--model", "m", "--only", "app-01-cors", "--out", str(tmp_path / "a.json"))
     _main(
@@ -451,13 +450,23 @@ def test_cli_run_line_names_the_reason_for_an_unavailable_case(tmp_path, monkeyp
     assert "schema" in line
 
 
+def _chat_only(handler):
+    # The provenance lookups also hit the transport; the tests count chat calls only.
+    def wrapper(request):
+        if request.url.path != "/api/chat":
+            return httpx.Response(404)
+        return handler(request)
+
+    return wrapper
+
+
 def _patch_client(monkeypatch, handler):
     client = httpx.Client(transport=httpx.MockTransport(handler))
     monkeypatch.setattr("evals.__main__._client", lambda: client)
 
 
 def _exit_code(tmp_path, monkeypatch, handler):
-    _patch_client(monkeypatch, handler)
+    _patch_client(monkeypatch, _chat_only(handler))
     return _main("run", "--model", "m", "--out", str(tmp_path / "run.json"))
 
 
@@ -507,3 +516,63 @@ def test_exit_code_tolerates_a_timeout_next_to_an_answer(tmp_path, monkeypatch):
         return _reply(_analysis())
 
     assert _exit_code(tmp_path, monkeypatch, handler) == 0
+
+
+def _provenance_handler(tags=None, version=None):
+    def handler(request):
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json=tags) if tags is not None else httpx.Response(500)
+        if request.url.path == "/api/version":
+            return httpx.Response(200, json=version) if version is not None else httpx.Response(500)
+        return _reply(_analysis())
+
+    return handler
+
+
+def test_provenance_reads_digest_and_version():
+    handler = _provenance_handler(
+        tags={"models": [{"name": "other", "digest": "x"}, {"name": "m", "digest": "abc123"}]},
+        version={"version": "0.40.12"},
+    )
+
+    result = fetch_provenance(httpx.Client(transport=httpx.MockTransport(handler)), "http://o", "m")
+
+    assert result == {"model_digest": "abc123", "ollama_version": "0.40.12"}
+
+
+def test_provenance_is_null_when_the_endpoints_fail_or_the_model_is_unknown():
+    failing = _provenance_handler()
+    unknown = _provenance_handler(tags={"models": []}, version={"nope": 1})
+    junk = _provenance_handler(tags=["x"], version="1")
+
+    for handler in (failing, unknown, junk):
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        assert fetch_provenance(client, "http://o", "m") == {
+            "model_digest": None,
+            "ollama_version": None,
+        }
+
+
+def test_provenance_is_null_when_ollama_is_unreachable():
+    def handler(request):
+        raise httpx.ConnectError("refused")
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+
+    assert fetch_provenance(client, "http://o", "m") == {
+        "model_digest": None,
+        "ollama_version": None,
+    }
+
+
+def test_cli_run_records_provenance(tmp_path, monkeypatch):
+    handler = _provenance_handler(
+        tags={"models": [{"name": "m", "digest": "abc123"}]}, version={"version": "0.40.12"}
+    )
+    _patch_client(monkeypatch, handler)
+    out = tmp_path / "run.json"
+
+    _main("run", "--model", "m", "--only", "app-01-cors", "--out", str(out))
+
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert (data["model_digest"], data["ollama_version"]) == ("abc123", "0.40.12")

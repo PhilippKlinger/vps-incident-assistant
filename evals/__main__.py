@@ -16,7 +16,7 @@ from evals.check import check_set
 from evals.freeze import freeze
 from evals.meter import DockerMeter, NullMeter
 from evals.report import build_report, render_markdown
-from evals.runner import PRODUCTION_TIMEOUT_S, describe_run, run_candidate
+from evals.runner import PRODUCTION_TIMEOUT_S, describe_run, fetch_provenance, run_candidate
 from evals.scoring import rule_accuracy, score, summarize
 
 HERE = Path(__file__).parent
@@ -80,10 +80,18 @@ def _run(args: argparse.Namespace) -> int:
         if unknown:
             raise SystemExit(f"Unknown case ids: {', '.join(unknown)}")
         cases = [case for case in cases if case.id in wanted]
-    ollama = OllamaClient(_client(), args.ollama_url, args.model, args.timeout)
+    client = _client()
+    ollama = OllamaClient(client, args.ollama_url, args.model, args.timeout)
+    provenance = fetch_provenance(client, args.ollama_url, args.model)
     meter = DockerMeter(args.container) if args.container else NullMeter()
     result = run_candidate(
-        cases, ollama, meter, args.model, out=args.out, on_case=lambda r: print(describe_run(r))
+        cases,
+        ollama,
+        meter,
+        args.model,
+        out=args.out,
+        on_case=lambda r: print(describe_run(r)),
+        provenance=provenance,
     )
     print(f"{args.model}: {len(cases)} cases, results in {args.out}")
     problem = _run_problem(result["runs"])
