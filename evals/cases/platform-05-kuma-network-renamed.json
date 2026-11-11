@@ -1,0 +1,70 @@
+{
+  "id": "platform-05-kuma-network-renamed",
+  "group": "platform",
+  "note": "Kuma moved from the shared network monitoring to a new network of its own that Caddy is not on, so the status page returns 502 while the monitored sites work.",
+  "event": {
+    "monitor_name": "Statusseite",
+    "url": "https://status.philipp-klinger.com/status/videoflix",
+    "status": "down",
+    "msg": "Request failed with status code 502",
+    "time": "2026-11-16T17:44:52+00:00"
+  },
+  "probe": {
+    "status_code": 502,
+    "error": null,
+    "latency_ms": 2,
+    "headers": {
+      "server": "Caddy"
+    },
+    "tls_days_left": 80,
+    "addresses": [
+      "203.0.113.10"
+    ]
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/videoflix-frontend",
+      "sha": "842b0a74",
+      "minutes_before": 20
+    },
+    {
+      "repo": "PhilippKlinger/vps-edge",
+      "sha": "c0294171",
+      "minutes_before": 400
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "4d1378ab",
+      "minutes_before": 800
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "b6f9becb",
+      "minutes_before": 1300
+    }
+  ],
+  "cause": {
+    "repo": "PhilippKlinger/vps-monitoring",
+    "sha": "57e082fdf4d09e1ed7348714ddaf842f5b1619e8",
+    "title": "refactor: own the status network in this stack",
+    "author": "Philipp Klinger",
+    "files": [
+      ".github/workflows/ci.yml",
+      "README.md",
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\n@@ -99,7 +99,7 @@ jobs:\n           networks=\"$(docker inspect --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' \"$(docker compose ps -q uptime-kuma)\")\"\n           echo \"Networks: ${networks}\"\n-          test \"$(tr ' ' '\\n' <<< \"${networks}\" | sed '/^$/d' | sort | tr '\\n' ' ')\" = \"incident monitoring monitoring_outbound \"\n+          test \"$(tr ' ' '\\n' <<< \"${networks}\" | sed '/^$/d' | sort | tr '\\n' ' ')\" = \"incident monitoring_outbound status \"\n \n       - name: No Docker socket mounted\ndiff --git a/README.md b/README.md\n@@ -30,1 +30,1 @@ flowchart LR\n-- The network `monitoring` belongs to [vps-edge](https://github.com/PhilippKlinger/vps-edge) and is internal. Caddy publishes only the status page, its API, badges and static files; everything else, including the dashboard and login, returns 404.\n+- The network `status` belongs to this stack and is internal, so Kuma starts without vps-edge. Caddy publishes only the status page, its API, badges and static files; everything else, including the dashboard and login, returns 404.\ndiff --git a/compose.yaml b/compose.yaml\n@@ -26,12 +26,13 @@ services:\n     logging:\n       driver: journald\n-    networks: [monitoring, outbound, incident]\n+    networks: [status, outbound, incident]\n \n networks:\n-  monitoring:\n-    # Created by vps-edge (internal, only Caddy and Kuma): the proxy never depends on this stack\n-    name: monitoring\n-    external: true\n+  status:\n+    # Owned here, so Kuma starts even if the edge stack is missing; internal: no route outside\n+    name: status\n+    internal: true\n   outbound:\n     # Route to the internet for the checks\n     driver: bridge",
+    "body": "",
+    "minutes_before": 38
+  },
+  "deploy_runs": [
+    "Deploy 2026-11-16 17:32 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-16 04:32 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "upstream_502",
+    "suspected_change": "57e082fdf4d09e1ed7348714ddaf842f5b1619e8",
+    "runbook": "vps-monitoring#status-page-down"
+  }
+}

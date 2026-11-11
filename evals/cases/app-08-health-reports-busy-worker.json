@@ -1,0 +1,74 @@
+{
+  "id": "app-08-health-reports-busy-worker",
+  "group": "app",
+  "note": "Health now reports error whenever a second upload waits behind a running conversion, so the API monitor goes down with database and cache fine; no runbook section covers this new check.",
+  "event": {
+    "monitor_name": "Videoflix · API",
+    "url": "https://videoflix.philipp-klinger.com/api/health/",
+    "status": "down",
+    "msg": "Request failed with status code 503",
+    "time": "2026-11-20T21:03:58+00:00"
+  },
+  "probe": {
+    "status_code": 503,
+    "error": null,
+    "latency_ms": 58,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "tls_days_left": 75,
+    "addresses": [
+      "203.0.113.10"
+    ]
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/videoflix-frontend",
+      "sha": "50849b0d",
+      "minutes_before": 500
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "2eda84d7",
+      "minutes_before": 700
+    },
+    {
+      "repo": "PhilippKlinger/vps-edge",
+      "sha": "5c6be282",
+      "minutes_before": 2600
+    },
+    {
+      "repo": "PhilippKlinger/vps-monitoring",
+      "sha": "e0bd5cca",
+      "minutes_before": 1000
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "b601de47",
+      "minutes_before": 400
+    }
+  ],
+  "cause": {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "ae024d3b504da409453379fd7c536e4bc47d6644",
+    "title": "feat: report a stuck conversion queue in the health check",
+    "author": "Philipp Klinger",
+    "files": [
+      "core/health.py"
+    ],
+    "patch": "diff --git a/core/health.py b/core/health.py\n@@ -6,6 +6,8 @@ import logging\n from django.conf import settings\n from django.core.cache import cache\n from django.db import connection\n+from django_rq import get_queue\n+from rq import Worker\n from rest_framework import status, views\n from rest_framework.permissions import AllowAny\n from rest_framework.response import Response\n@@ -26,7 +28,11 @@ class HealthView(views.APIView):\n     throttle_classes = []\n \n     def get(self, request):\n-        checks = {\"database\": _check_database(), \"cache\": _check_cache()}\n+        checks = {\n+            \"database\": _check_database(),\n+            \"cache\": _check_cache(),\n+            \"queue\": _check_queue(),\n+        }\n         healthy = all(result == \"ok\" for result in checks.values())\n         body = {\"status\": \"ok\" if healthy else \"error\", **checks}\n         code = status.HTTP_200_OK if healthy else status.HTTP_503_SERVICE_UNAVAILABLE\n@@ -66,3 +72,16 @@ def _check_cache():\n     except Exception:\n         logger.exception(\"Health check: cache not reachable\")\n         return \"error\"\n+\n+\n+def _check_queue():\n+    # Jobs waiting while no worker is idle means the conversion queue does not move.\n+    try:\n+        queue = get_queue(\"default\")\n+        if queue.count and not any(w.get_state() == \"idle\" for w in Worker.all(queue=queue)):\n+            logger.error(\"Health check: %s conversions waiting, no idle worker\", queue.count)\n+            return \"error\"\n+        return \"ok\"\n+    except Exception:\n+        logger.exception(\"Health check: queue not readable\")\n+        return \"error\"",
+    "body": "Uploads waited silently when the worker hung. The health check now reports\nthe queue as error when jobs are waiting and no worker is idle, so Kuma\nalerts on a stuck queue as well.",
+    "minutes_before": 1830
+  },
+  "deploy_runs": [
+    "Deploy 2026-11-20 14:31 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-20 12:51 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-19 14:41 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "health_degraded",
+    "suspected_change": "ae024d3b504da409453379fd7c536e4bc47d6644",
+    "runbook": "none"
+  }
+}

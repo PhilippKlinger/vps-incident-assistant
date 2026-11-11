@@ -1,0 +1,72 @@
+{
+  "id": "app-03-stream-stats-ffprobe",
+  "group": "app",
+  "note": "Running ffprobe for every segment inside the stream statistics request blocks all gunicorn threads once a few viewers open the details view, so the health check times out.",
+  "event": {
+    "monitor_name": "Videoflix · API",
+    "url": "https://videoflix.philipp-klinger.com/api/health/",
+    "status": "down",
+    "msg": "timeout of 48000ms exceeded",
+    "time": "2026-11-15T19:41:50+00:00"
+  },
+  "probe": {
+    "status_code": null,
+    "error": "timeout",
+    "latency_ms": null,
+    "headers": {},
+    "tls_days_left": 80,
+    "addresses": [
+      "203.0.113.10"
+    ]
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/videoflix-frontend",
+      "sha": "842b0a74",
+      "minutes_before": 25
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "790921bf",
+      "minutes_before": 400
+    },
+    {
+      "repo": "PhilippKlinger/vps-edge",
+      "sha": "c0294171",
+      "minutes_before": 900
+    },
+    {
+      "repo": "PhilippKlinger/vps-monitoring",
+      "sha": "63493095",
+      "minutes_before": 1100
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "9502f215",
+      "minutes_before": 700
+    }
+  ],
+  "cause": {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "dfe3e25e839379b49485e19ce543c6efb511ff48",
+    "title": "feat: measure the real bitrate of each rendition",
+    "author": "Philipp Klinger",
+    "files": [
+      "video_app/api/streams.py"
+    ],
+    "patch": "diff --git a/video_app/api/streams.py b/video_app/api/streams.py\n@@ -3,7 +3,24 @@ Statistics of an HLS stream, read from its playlist and segment files.\n \"\"\"\n \n import math\n import os\n+import subprocess\n+\n+# ffprobe per segment; the web image ships ffprobe for the upload check anyway.\n+FFPROBE_TIMEOUT_SECONDS = 30\n+\n+\n+def _probe_bitrate(path):\n+    \"\"\"\n+    Bit rate of one segment in bit/s as reported by ffprobe, or None if it cannot be read.\n+    \"\"\"\n+    command = [\"ffprobe\", \"-v\", \"error\", \"-show_entries\", \"format=bit_rate\", \"-of\", \"csv=p=0\", path]\n+    try:\n+        result = subprocess.run(command, capture_output=True, text=True, timeout=FFPROBE_TIMEOUT_SECONDS, check=True)\n+        return int(result.stdout.strip())\n+    except (subprocess.SubprocessError, ValueError):\n+        return None\n \n \n def _is_segment_name(name):\n@@ -42,6 +59,7 @@ def read_stream_stats(playlist_path):\n         segment_count = 0\n         duration = 0.0\n         size_bytes = 0\n+        bitrates = []\n         pending = None\n         for line in lines:\n             if line.startswith(\"#EXT-X-TARGETDURATION:\"):\n@@ -56,6 +74,9 @@ def read_stream_stats(playlist_path):\n                     segment_count += 1\n                     duration += pending\n                     size_bytes += size\n+                    bitrate = _probe_bitrate(os.path.join(base_dir, line))\n+                    if bitrate is not None:\n+                        bitrates.append(bitrate)\n                 pending = None\n     except (OSError, ValueError, OverflowError):\n         return None\n@@ -63,7 +84,9 @@ def read_stream_stats(playlist_path):\n         return None\n     return {\n-        \"bitrate_kbps\": round(size_bytes * 8 / duration / 1000),\n+        \"bitrate_kbps\": round(sum(bitrates) / len(bitrates) / 1000)\n+        if bitrates\n+        else round(size_bytes * 8 / duration / 1000),\n         \"segment_count\": segment_count,\n         \"segment_seconds\": target,",
+    "body": "The bitrate in the details view was estimated from file sizes and the playlist\nduration. ffprobe now reads the real bit rate of every segment, so the under\nthe hood view shows what the player actually receives.",
+    "minutes_before": 58
+  },
+  "deploy_runs": [
+    "Deploy 2026-11-15 19:24 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-15 18:51 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-15 08:09 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "timeout",
+    "suspected_change": "dfe3e25e839379b49485e19ce543c6efb511ff48",
+    "runbook": "videoflix-deploy#regression-after-deploy"
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "id": "app-09-nginx-root-subdir",
+  "group": "app",
+  "note": "nginx now looks for the app in a browser subfolder that does not exist in the image, so / ends in a missing index.html and returns 404 while the deploy waits for the frontend to become healthy.",
+  "event": {
+    "monitor_name": "Videoflix · Web-App",
+    "url": "https://videoflix.philipp-klinger.com/",
+    "status": "down",
+    "msg": "Request failed with status code 404",
+    "time": "2026-11-21T13:26:40+00:00"
+  },
+  "probe": {
+    "status_code": 404,
+    "error": null,
+    "latency_ms": 6,
+    "headers": {
+      "content-type": "text/html"
+    },
+    "tls_days_left": 74,
+    "addresses": [
+      "203.0.113.10"
+    ]
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/videoflix-frontend",
+      "sha": "87e03dd3",
+      "minutes_before": 300
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "26d47e38",
+      "minutes_before": 200
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "0e7152b4",
+      "minutes_before": 1800
+    },
+    {
+      "repo": "PhilippKlinger/vps-edge",
+      "sha": "c0294171",
+      "minutes_before": 2400
+    },
+    {
+      "repo": "PhilippKlinger/vps-monitoring",
+      "sha": "63493095",
+      "minutes_before": 900
+    }
+  ],
+  "cause": {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "ab426c4853f5a3fe995747952313c8d14d116b79",
+    "title": "fix: point nginx at the browser folder of the build",
+    "author": "Philipp Klinger",
+    "files": [
+      "nginx.conf"
+    ],
+    "patch": "diff --git a/nginx.conf b/nginx.conf\n@@ -1,8 +1,9 @@\n # Serves the Angular build behind the Caddy edge proxy; /api/, /admin/ and /static/ go to the backend there.\n server {\n     listen 8080;\n     server_name _;\n-    root /usr/share/nginx/html;\n+    # Same folder as the build output (dist/videoflix/browser)\n+    root /usr/share/nginx/html/browser;\n     index index.html;\n     server_tokens off;\n     # Activation and reset tokens are part of request paths; Caddy and Gunicorn keep no access log either.",
+    "body": "",
+    "minutes_before": 14
+  },
+  "deploy_runs": [
+    "Deploy 2026-11-21 13:20 UTC: in_progress (repository_dispatch, image-published)",
+    "Deploy 2026-11-21 10:14 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-21 08:34 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "unknown",
+    "suspected_change": "ab426c4853f5a3fe995747952313c8d14d116b79",
+    "runbook": "videoflix-deploy#app-shell-error"
+  }
+}

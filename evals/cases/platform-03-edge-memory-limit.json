@@ -1,0 +1,66 @@
+{
+  "id": "platform-03-edge-memory-limit",
+  "group": "platform",
+  "note": "A 48 MB memory limit is below Caddy's peak during TLS handshakes and compression, so the kernel kills the proxy again and again and every site, the status page included, refuses connections.",
+  "event": {
+    "monitor_name": "Statusseite",
+    "url": "https://status.philipp-klinger.com/status/videoflix",
+    "status": "down",
+    "msg": "connect ECONNREFUSED 203.0.113.10:443",
+    "time": "2026-11-14T20:31:37+00:00"
+  },
+  "probe": {
+    "status_code": null,
+    "error": "refused",
+    "latency_ms": null,
+    "headers": {},
+    "tls_days_left": 84,
+    "addresses": [
+      "203.0.113.10"
+    ]
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/vps-monitoring",
+      "sha": "6c79ff0a",
+      "minutes_before": 300
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "8a38bd0c",
+      "minutes_before": 600
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "00c3d523",
+      "minutes_before": 1000
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-frontend",
+      "sha": "be2c9760",
+      "minutes_before": 1100
+    }
+  ],
+  "cause": {
+    "repo": "PhilippKlinger/vps-edge",
+    "sha": "e7ae621fbfa5c0130fd82386be539bdb29e31038",
+    "title": "fix: limit memory, cpu and processes of the proxy",
+    "author": "Philipp Klinger",
+    "files": [
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/compose.yaml b/compose.yaml\n@@ -20,6 +20,10 @@ services:\n     cap_drop: [ALL]\n     cap_add: [NET_BIND_SERVICE]\n     security_opt: [\"no-new-privileges:true\"]\n+    # Same kind of limits as the project stacks; Caddy idles at about 30 MB\n+    mem_limit: 48m\n+    cpus: 1\n+    pids_limit: 64\n     restart: unless-stopped\n     # json-file only rotates by size; the time limit comes from host/journald-retention.conf\n     logging:",
+    "body": "",
+    "minutes_before": 95
+  },
+  "deploy_runs": [
+    "Deploy 2026-11-14 03:59 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-14 02:19 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "proxy_down",
+    "suspected_change": "e7ae621fbfa5c0130fd82386be539bdb29e31038",
+    "runbook": "vps-edge#proxy-down"
+  }
+}

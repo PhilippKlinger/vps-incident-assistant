@@ -1,0 +1,74 @@
+{
+  "id": "app-07-conversion-retry-fills-disk",
+  "group": "app",
+  "note": "The conversion task re-queues itself without a limit and writes each attempt into a new folder, so one upload that always fails filled the disk and Postgres stopped working, which the health check reports as database error.",
+  "event": {
+    "monitor_name": "Videoflix · API",
+    "url": "https://videoflix.philipp-klinger.com/api/health/",
+    "status": "down",
+    "msg": "Request failed with status code 503",
+    "time": "2026-11-19T04:18:27+00:00"
+  },
+  "probe": {
+    "status_code": 503,
+    "error": null,
+    "latency_ms": 87,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "tls_days_left": 76,
+    "addresses": [
+      "203.0.113.10"
+    ]
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "4d1378ab",
+      "minutes_before": 200
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-frontend",
+      "sha": "2265f26b",
+      "minutes_before": 600
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "b6f9becb",
+      "minutes_before": 900
+    },
+    {
+      "repo": "PhilippKlinger/vps-monitoring",
+      "sha": "21ae80ac",
+      "minutes_before": 300
+    },
+    {
+      "repo": "PhilippKlinger/vps-edge",
+      "sha": "e15a7ec2",
+      "minutes_before": 1200
+    }
+  ],
+  "cause": {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "fd41f8fa9d59f26275550756ddbe8d7ace09b44d",
+    "title": "fix: retry a failed conversion instead of giving up",
+    "author": "Philipp Klinger",
+    "files": [
+      "video_app/api/tasks.py"
+    ],
+    "patch": "diff --git a/video_app/api/tasks.py b/video_app/api/tasks.py\n@@ -4,6 +4,8 @@ import logging\n import os\n import subprocess\n+import time\n \n+import django_rq\n from django.conf import settings\n from django.core.files.storage import default_storage\n \n@@ -125,10 +127,15 @@ def convert_video(video_id):\n         set_video_failed(video_instance)\n         return\n \n-    # One folder per video: equal file names must never share or overwrite streams.\n-    output_base_dir = os.path.join(settings.MEDIA_ROOT, \"hls\", str(video_instance.pk))\n+    # One folder per video and attempt: a retry must never mix segments with a broken attempt.\n+    attempt = str(int(time.time()))\n+    output_base_dir = os.path.join(settings.MEDIA_ROOT, \"hls\", str(video_instance.pk), attempt)\n     os.makedirs(output_base_dir, exist_ok=True)\n     if _convert_to_all_resolutions(video_instance, input_file, base_name, output_base_dir):\n         _delete_original_video(video_instance)\n+    else:\n+        # Timeouts are usually load peaks; the next attempt runs when the worker is free again.\n+        Video.objects.filter(pk=video_instance.pk).update(status=\"processing\")\n+        django_rq.get_queue(\"default\").enqueue(convert_video, video_instance.pk)\n \n \n def _delete_original_video(video_instance):",
+    "body": "A conversion that hit the time limit was marked failed, although a second\nattempt on a quieter worker usually works. The task now queues itself again\nand keeps each attempt in its own folder, so a retry never mixes segments.",
+    "minutes_before": 1480
+  },
+  "deploy_runs": [
+    "Deploy 2026-11-19 01:06 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-18 18:26 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-18 03:46 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "health_degraded",
+    "suspected_change": "fd41f8fa9d59f26275550756ddbe8d7ace09b44d",
+    "runbook": "videoflix-deploy#database-or-cache-not-ok"
+  }
+}

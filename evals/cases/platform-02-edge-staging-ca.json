@@ -1,0 +1,71 @@
+{
+  "id": "platform-02-edge-staging-ca",
+  "group": "platform",
+  "note": "The global acme_ca option switched Caddy to the Let's Encrypt staging CA, so after the restart it served untrusted staging certificates; a later frontend deploy failed its smoke test for the same reason.",
+  "event": {
+    "monitor_name": "Videoflix · Web-App",
+    "url": "https://videoflix.philipp-klinger.com/",
+    "status": "down",
+    "msg": "unable to get local issuer certificate",
+    "time": "2026-11-13T07:12:09+00:00"
+  },
+  "probe": {
+    "status_code": null,
+    "error": "tls",
+    "latency_ms": null,
+    "headers": {},
+    "tls_days_left": null,
+    "addresses": [
+      "203.0.113.10"
+    ]
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/videoflix-frontend",
+      "sha": "85ecc765",
+      "minutes_before": 60
+    },
+    {
+      "repo": "PhilippKlinger/vps-monitoring",
+      "sha": "63493095",
+      "minutes_before": 30
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "2eda84d7",
+      "minutes_before": 400
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "b601de47",
+      "minutes_before": 700
+    },
+    {
+      "repo": "PhilippKlinger/vps-edge",
+      "sha": "aa312229",
+      "minutes_before": 1500
+    }
+  ],
+  "cause": {
+    "repo": "PhilippKlinger/vps-edge",
+    "sha": "fbe080e72b4d3b7b26feda21ca912d7968c96ad4",
+    "title": "chore: use the staging CA while new site names are tested",
+    "author": "Philipp Klinger",
+    "files": [
+      "Caddyfile"
+    ],
+    "patch": "diff --git a/Caddyfile b/Caddyfile\n@@ -1,5 +1,8 @@\n {\n \temail {$ACME_EMAIL}\n+\t# Staging CA while new site names are tested: failed attempts do not count\n+\t# against the production rate limit of Let's Encrypt\n+\tacme_ca https://acme-staging-v02.api.letsencrypt.org/directory\n \t# The admin API is not needed: configuration changes go through a container restart\n \tadmin off\n }",
+    "body": "",
+    "minutes_before": 130
+  },
+  "deploy_runs": [
+    "Deploy 2026-11-13 06:20 UTC: failure (repository_dispatch, image-published)",
+    "Deploy 2026-11-12 19:40 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "tls",
+    "suspected_change": "fbe080e72b4d3b7b26feda21ca912d7968c96ad4",
+    "runbook": "vps-edge#certificate"
+  }
+}

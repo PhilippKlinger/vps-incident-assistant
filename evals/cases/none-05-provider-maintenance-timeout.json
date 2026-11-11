@@ -1,0 +1,62 @@
+{
+  "id": "none-05-provider-maintenance-timeout",
+  "group": "none",
+  "note": "A maintenance on the provider's host node stalled the VPS for about a minute, so Kuma's check timed out; the site answers again, no change touches the app shell and no runbook section covers provider incidents.",
+  "event": {
+    "monitor_name": "Videoflix · Web-App",
+    "url": "https://videoflix.philipp-klinger.com/",
+    "status": "down",
+    "msg": "timeout of 48000ms exceeded",
+    "time": "2026-11-24T01:12:44+00:00"
+  },
+  "probe": {
+    "status_code": 200,
+    "error": null,
+    "latency_ms": 2950,
+    "headers": {
+      "content-type": "text/html"
+    },
+    "tls_days_left": 71,
+    "addresses": [
+      "203.0.113.10"
+    ]
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "c0bc92be",
+      "minutes_before": 500
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-frontend",
+      "sha": "87e03dd3",
+      "minutes_before": 800
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "0e7152b4",
+      "minutes_before": 2500
+    },
+    {
+      "repo": "PhilippKlinger/vps-edge",
+      "sha": "aa312229",
+      "minutes_before": 1500
+    },
+    {
+      "repo": "PhilippKlinger/vps-monitoring",
+      "sha": "21ae80ac",
+      "minutes_before": 3000
+    }
+  ],
+  "cause": null,
+  "deploy_runs": [
+    "Deploy 2026-11-23 17:00 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-23 12:00 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "unknown",
+    "suspected_change": "none",
+    "runbook": "none"
+  }
+}

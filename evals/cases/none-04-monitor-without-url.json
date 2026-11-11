@@ -1,0 +1,46 @@
+{
+  "id": "none-04-monitor-without-url",
+  "group": "none",
+  "note": "A push-type monitor without URL stopped receiving heartbeats; no probe ran and neither the facts nor the changes support a cause, so the honest answer is none for both.",
+  "event": {
+    "monitor_name": "Videoflix · API",
+    "url": null,
+    "status": "down",
+    "msg": "No heartbeat in the time window",
+    "time": "2026-11-23T02:10:07+00:00"
+  },
+  "probe": null,
+  "history": [
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "18bfc8a6",
+      "minutes_before": 600
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-frontend",
+      "sha": "50849b0d",
+      "minutes_before": 1400
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "17f4316e",
+      "minutes_before": 900
+    },
+    {
+      "repo": "PhilippKlinger/vps-monitoring",
+      "sha": "4132b492",
+      "minutes_before": 200
+    }
+  ],
+  "cause": null,
+  "deploy_runs": [
+    "Deploy 2026-11-22 16:18 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-22 02:58 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "unknown",
+    "suspected_change": "none",
+    "runbook": "none"
+  }
+}

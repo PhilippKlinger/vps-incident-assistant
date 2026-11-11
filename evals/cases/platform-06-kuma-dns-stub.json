@@ -1,0 +1,68 @@
+{
+  "id": "platform-06-kuma-dns-stub",
+  "group": "platform",
+  "note": "The new dns option points Kuma at 127.0.0.53, which inside the container is its own loopback without a resolver, so every check fails with EAI_AGAIN while the sites answer normally.",
+  "event": {
+    "monitor_name": "Videoflix · Web-App",
+    "url": "https://videoflix.philipp-klinger.com/",
+    "status": "down",
+    "msg": "getaddrinfo EAI_AGAIN videoflix.philipp-klinger.com",
+    "time": "2026-11-17T06:58:31+00:00"
+  },
+  "probe": {
+    "status_code": 200,
+    "error": null,
+    "latency_ms": 31,
+    "headers": {
+      "content-type": "text/html"
+    },
+    "tls_days_left": 79,
+    "addresses": [
+      "203.0.113.10"
+    ]
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/vps-edge",
+      "sha": "5c6be282",
+      "minutes_before": 1200
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "30b137ad",
+      "minutes_before": 500
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-frontend",
+      "sha": "26a1f7fd",
+      "minutes_before": 700
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "919d7bf9",
+      "minutes_before": 1500
+    }
+  ],
+  "cause": {
+    "repo": "PhilippKlinger/vps-monitoring",
+    "sha": "75fbd04e58dc8c183a4a84d60fd613ca2adc4787",
+    "title": "fix: resolve monitored hosts like the server does",
+    "author": "Philipp Klinger",
+    "files": [
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/compose.yaml b/compose.yaml\n@@ -9,6 +9,8 @@ services:\n     environment:\n       # Skips the database setup page on the first start; SQLite lives in the volume below\n       UPTIME_KUMA_DB_TYPE: sqlite\n+    # Same resolver as the host (systemd-resolved), so the checks get the DNS answers visitors get\n+    dns: [127.0.0.53]\n     volumes:\n       # SQLite database: monitors, status pages, notifications and the uptime history\n       - kuma_data:/app/data",
+    "body": "",
+    "minutes_before": 26
+  },
+  "deploy_runs": [
+    "Deploy 2026-11-16 19:26 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-16 06:06 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "unknown",
+    "suspected_change": "75fbd04e58dc8c183a4a84d60fd613ca2adc4787",
+    "runbook": "vps-monitoring#all-monitors-red"
+  }
+}

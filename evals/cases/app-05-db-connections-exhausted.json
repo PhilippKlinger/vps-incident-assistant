@@ -1,0 +1,75 @@
+{
+  "id": "app-05-db-connections-exhausted",
+  "group": "app",
+  "note": "Four workers with 32 threads and connections kept for ten minutes can hold 128 database connections, more than Postgres allows, so under evening streaming load the health check's database query fails with too many clients.",
+  "event": {
+    "monitor_name": "Videoflix · API",
+    "url": "https://videoflix.philipp-klinger.com/api/health/",
+    "status": "down",
+    "msg": "Request failed with status code 503",
+    "time": "2026-11-17T20:12:44+00:00"
+  },
+  "probe": {
+    "status_code": 503,
+    "error": null,
+    "latency_ms": 112,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "tls_days_left": 78,
+    "addresses": [
+      "203.0.113.10"
+    ]
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "646f484a",
+      "minutes_before": 318
+    },
+    {
+      "repo": "PhilippKlinger/vps-monitoring",
+      "sha": "47445d6c",
+      "minutes_before": 120
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-frontend",
+      "sha": "7e0de024",
+      "minutes_before": 60
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "18bfc8a6",
+      "minutes_before": 1400
+    },
+    {
+      "repo": "PhilippKlinger/vps-edge",
+      "sha": "781ee71d",
+      "minutes_before": 3000
+    }
+  ],
+  "cause": {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "2ac532c1b5e913c4fec5eb012bed11953e5eac6a",
+    "title": "perf: serve more parallel stream requests",
+    "author": "Philipp Klinger",
+    "files": [
+      "backend.entrypoint.sh",
+      "core/settings.py"
+    ],
+    "patch": "diff --git a/backend.entrypoint.sh b/backend.entrypoint.sh\n@@ -24,8 +24,9 @@ case \"$1\" in\n     # No access log: activation and reset tokens are part of request paths.\n+    # HLS segments are many small requests: more threads instead of more memory per worker.\n     exec gunicorn core.wsgi:application \\\n       --bind 0.0.0.0:8000 \\\n       --worker-class gthread \\\n-      --workers \"${GUNICORN_WORKERS:-2}\" \\\n-      --threads \"${GUNICORN_THREADS:-4}\" \\\n+      --workers \"${GUNICORN_WORKERS:-4}\" \\\n+      --threads \"${GUNICORN_THREADS:-32}\" \\\n       --timeout \"${GUNICORN_TIMEOUT:-120}\"\n     ;;\ndiff --git a/core/settings.py b/core/settings.py\n@@ -144,7 +144,9 @@ DATABASES = {\n         \"USER\": os.environ.get(\"DB_USER\", default=\"videoflix_user\"),\n         \"PASSWORD\": DB_PASSWORD,\n         \"HOST\": os.environ.get(\"DB_HOST\", default=\"db\"),\n-        \"PORT\": os.environ.get(\"DB_PORT\", default=5432)\n+        \"PORT\": os.environ.get(\"DB_PORT\", default=5432),\n+        # Reuse connections between requests instead of opening one per segment.\n+        \"CONN_MAX_AGE\": int(os.environ.get(\"DB_CONN_MAX_AGE\", \"600\")),\n     }\n }",
+    "body": "HLS players fetch a segment every four seconds per viewer, and eight threads\nqueued them during the demo. Four workers with 32 threads each, and database\nconnections kept between requests, avoid a new connection per segment.",
+    "minutes_before": 330
+  },
+  "deploy_runs": [
+    "Deploy 2026-11-17 19:20 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-17 14:50 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-16 21:00 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "health_degraded",
+    "suspected_change": "2ac532c1b5e913c4fec5eb012bed11953e5eac6a",
+    "runbook": "videoflix-deploy#database-or-cache-not-ok"
+  }
+}

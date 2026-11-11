@@ -1,0 +1,76 @@
+{
+  "id": "app-02-health-throttled",
+  "group": "app",
+  "note": "The new 30/hour scope throttle on the health endpoint makes Kuma's 60 checks per hour run into 429 about half an hour after the green deploy.",
+  "event": {
+    "monitor_name": "Videoflix · API",
+    "url": "https://videoflix.philipp-klinger.com/api/health/",
+    "status": "down",
+    "msg": "Request failed with status code 429",
+    "time": "2026-11-14T16:22:05+00:00"
+  },
+  "probe": {
+    "status_code": 429,
+    "error": null,
+    "latency_ms": 21,
+    "headers": {
+      "content-type": "application/json",
+      "retry-after": "1712"
+    },
+    "tls_days_left": 81,
+    "addresses": [
+      "203.0.113.10"
+    ]
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "13c3c635",
+      "minutes_before": 300
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-frontend",
+      "sha": "be2c9760",
+      "minutes_before": 610
+    },
+    {
+      "repo": "PhilippKlinger/vps-monitoring",
+      "sha": "6c79ff0a",
+      "minutes_before": 900
+    },
+    {
+      "repo": "PhilippKlinger/vps-edge",
+      "sha": "aa312229",
+      "minutes_before": 1500
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "646f484a",
+      "minutes_before": 28
+    }
+  ],
+  "cause": {
+    "repo": "PhilippKlinger/videoflix-backend",
+    "sha": "b4416a746668c63b5a9e830d3d397b3b98253835",
+    "title": "fix: limit anonymous requests to the public endpoints",
+    "author": "Philipp Klinger",
+    "files": [
+      "core/health.py",
+      "core/settings.py"
+    ],
+    "patch": "diff --git a/core/health.py b/core/health.py\n@@ -8,6 +8,7 @@ from django.core.cache import cache\n from django.db import connection\n from rest_framework import status, views\n from rest_framework.permissions import AllowAny\n from rest_framework.response import Response\n+from rest_framework.throttling import ScopedRateThrottle\n \n logger = logging.getLogger(__name__)\n \n@@ -21,7 +22,9 @@ class HealthView(views.APIView):\n \n     permission_classes = [AllowAny]\n     authentication_classes = []\n-    throttle_classes = []\n+    # Public and unauthenticated: limited per client IP like the login (counters in Redis).\n+    throttle_classes = [ScopedRateThrottle]\n+    throttle_scope = \"public\"\n \n     def get(self, request):\n         checks = {\"database\": _check_database(), \"cache\": _check_cache()}\n@@ -38,7 +41,8 @@ class VersionView(views.APIView):\n \n     permission_classes = [AllowAny]\n     authentication_classes = []\n-    throttle_classes = []\n+    throttle_classes = [ScopedRateThrottle]\n+    throttle_scope = \"public\"\n \n     def get(self, request):\n         return Response({\"sha\": settings.GIT_SHA, \"builtAt\": settings.BUILD_TIME})\ndiff --git a/core/settings.py b/core/settings.py\n@@ -82,6 +82,7 @@ REST_FRAMEWORK = {\n         \"auth_mail\": os.environ.get(\"THROTTLE_RATE_AUTH_MAIL\") or \"5/hour\",\n         \"upload\": os.environ.get(\"THROTTLE_RATE_UPLOAD\") or \"10/hour\",\n         \"demo\": os.environ.get(\"THROTTLE_RATE_DEMO\") or \"5/hour\",\n+        \"public\": os.environ.get(\"THROTTLE_RATE_PUBLIC\") or \"30/hour\",\n     },\n     # Number of reverse proxies in front of Django. 0 ignores X-Forwarded-For,\n     # so clients cannot fake their IP; behind Caddy it is 1.",
+    "body": "Health and version answered without any limit, so anyone could hammer them\nand reach the database with every request (audit finding). Both views now\nshare the scope \"public\"; the rate is overridable per environment.",
+    "minutes_before": 44
+  },
+  "deploy_runs": [
+    "Deploy 2026-11-14 15:47 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-14 11:30 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-14 06:20 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "unknown",
+    "suspected_change": "b4416a746668c63b5a9e830d3d397b3b98253835",
+    "runbook": "videoflix-deploy#regression-after-deploy"
+  }
+}

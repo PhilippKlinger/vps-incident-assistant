@@ -1,0 +1,58 @@
+{
+  "id": "none-02-dns-record-missing",
+  "group": "none",
+  "note": "The A record of videoflix.philipp-klinger.com was deleted during a zone edit at the registrar, so the name no longer resolves; nothing in the repositories manages DNS and no runbook section covers it.",
+  "event": {
+    "monitor_name": "Videoflix · API",
+    "url": "https://videoflix.philipp-klinger.com/api/health/",
+    "status": "down",
+    "msg": "getaddrinfo ENOTFOUND videoflix.philipp-klinger.com",
+    "time": "2026-11-21T08:14:55+00:00"
+  },
+  "probe": {
+    "status_code": null,
+    "error": "dns",
+    "latency_ms": null,
+    "headers": {},
+    "tls_days_left": null,
+    "addresses": []
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "13c3c635",
+      "minutes_before": 260
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-frontend",
+      "sha": "be2c9760",
+      "minutes_before": 1100
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "d5fca28f",
+      "minutes_before": 1900
+    },
+    {
+      "repo": "PhilippKlinger/vps-edge",
+      "sha": "492d8cd5",
+      "minutes_before": 2400
+    },
+    {
+      "repo": "PhilippKlinger/vps-monitoring",
+      "sha": "6c79ff0a",
+      "minutes_before": 500
+    }
+  ],
+  "cause": null,
+  "deploy_runs": [
+    "Deploy 2026-11-21 04:02 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-20 14:02 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "dns",
+    "suspected_change": "none",
+    "runbook": "none"
+  }
+}

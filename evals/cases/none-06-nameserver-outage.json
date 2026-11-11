@@ -1,0 +1,57 @@
+{
+  "id": "none-06-nameserver-outage",
+  "group": "none",
+  "note": "The registrar's authoritative nameservers for philipp-klinger.com were unreachable, so lookups failed with EAI_AGAIN; no repository manages DNS and no runbook section covers a nameserver outage.",
+  "event": {
+    "monitor_name": "Statusseite",
+    "url": "https://status.philipp-klinger.com/status/videoflix",
+    "status": "down",
+    "msg": "getaddrinfo EAI_AGAIN status.philipp-klinger.com",
+    "time": "2026-11-25T16:33:29+00:00"
+  },
+  "probe": {
+    "status_code": null,
+    "error": "dns",
+    "latency_ms": null,
+    "headers": {},
+    "tls_days_left": null,
+    "addresses": []
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/vps-monitoring",
+      "sha": "43ed6697",
+      "minutes_before": 150
+    },
+    {
+      "repo": "PhilippKlinger/vps-monitoring",
+      "sha": "47445d6c",
+      "minutes_before": 1500
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "47b2b943",
+      "minutes_before": 900
+    },
+    {
+      "repo": "PhilippKlinger/vps-edge",
+      "sha": "34110dcc",
+      "minutes_before": 2600
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "00c3d523",
+      "minutes_before": 2000
+    }
+  ],
+  "cause": null,
+  "deploy_runs": [
+    "Deploy 2026-11-24 07:21 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "dns",
+    "suspected_change": "none",
+    "runbook": "none"
+  }
+}

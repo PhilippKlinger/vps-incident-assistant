@@ -1,0 +1,52 @@
+{
+  "id": "none-01-certificate-expired",
+  "group": "none",
+  "note": "Caddy could not renew because a CAA record added at the registrar no longer allows Let's Encrypt; no repository change is involved, and the certificate runbook section covers the check.",
+  "event": {
+    "monitor_name": "Videoflix · Web-App",
+    "url": "https://videoflix.philipp-klinger.com/",
+    "status": "down",
+    "msg": "certificate has expired",
+    "time": "2026-11-20T03:00:41+00:00"
+  },
+  "probe": {
+    "status_code": null,
+    "error": "tls",
+    "latency_ms": null,
+    "headers": {},
+    "tls_days_left": null,
+    "addresses": [
+      "203.0.113.10"
+    ]
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "8a38bd0c",
+      "minutes_before": 200
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "790921bf",
+      "minutes_before": 340
+    },
+    {
+      "repo": "PhilippKlinger/vps-edge",
+      "sha": "c0294171",
+      "minutes_before": 1000
+    },
+    {
+      "repo": "PhilippKlinger/vps-monitoring",
+      "sha": "43ed6697",
+      "minutes_before": 1800
+    }
+  ],
+  "cause": null,
+  "deploy_runs": [],
+  "canary": null,
+  "expected": {
+    "category": "tls",
+    "suspected_change": "none",
+    "runbook": "vps-edge#certificate"
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "id": "platform-08-env-rename-crash-loop",
+  "group": "platform",
+  "note": "Compose now sets TRUSTED_PROXY_COUNT from a new variable PROXY_COUNT that the server's .env lacks, so Django gets an empty string, fails on int(''), and web crash-loops after the manual docker compose up.",
+  "event": {
+    "monitor_name": "Videoflix · API",
+    "url": "https://videoflix.philipp-klinger.com/api/health/",
+    "status": "down",
+    "msg": "Request failed with status code 502",
+    "time": "2026-11-19T14:40:23+00:00"
+  },
+  "probe": {
+    "status_code": 502,
+    "error": null,
+    "latency_ms": 3,
+    "headers": {
+      "server": "Caddy"
+    },
+    "tls_days_left": 76,
+    "addresses": [
+      "203.0.113.10"
+    ]
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/vps-edge",
+      "sha": "492d8cd5",
+      "minutes_before": 600
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-frontend",
+      "sha": "2265f26b",
+      "minutes_before": 900
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "4816c3d4",
+      "minutes_before": 1300
+    },
+    {
+      "repo": "PhilippKlinger/vps-monitoring",
+      "sha": "e0bd5cca",
+      "minutes_before": 2000
+    }
+  ],
+  "cause": {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "cfb2f6191dd838ccc54d398f2f73c1d5109e2548",
+    "title": "fix: set the proxy count for all backend services in compose",
+    "author": "Philipp Klinger",
+    "files": [
+      ".env.example",
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/.env.example b/.env.example\n@@ -14,5 +14,5 @@ ALLOWED_HOSTS=videoflix.philipp-klinger.com\n CSRF_TRUSTED_ORIGINS=https://videoflix.philipp-klinger.com\n FRONTEND_URL=https://videoflix.philipp-klinger.com\n-# Caddy is the only proxy in front of Django\n-TRUSTED_PROXY_COUNT=1\n+# Number of proxies in front of Django (Caddy); passed on by compose.yaml\n+PROXY_COUNT=1\ndiff --git a/compose.yaml b/compose.yaml\n@@ -13,6 +13,9 @@ x-backend: &backend\n   image: ${BACKEND_IMAGE:-ghcr.io/philippklinger/videoflix-backend@sha256:346d0a94572ee913c68f3a6b528aeb79d39175beb265489ac390fdcfa72c09de}\n   env_file: [.env]\n+  environment:\n+    # One value for web and all workers; the client IP of rate limits depends on it\n+    TRUSTED_PROXY_COUNT: ${PROXY_COUNT}\n   volumes:\n     - media:/app/media\n   cap_drop: [ALL]",
+    "body": "",
+    "minutes_before": 18
+  },
+  "deploy_runs": [
+    "Deploy 2026-11-18 23:48 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-18 17:08 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "upstream_502",
+    "suspected_change": "cfb2f6191dd838ccc54d398f2f73c1d5109e2548",
+    "runbook": "videoflix-deploy#web-crash-loop"
+  }
+}

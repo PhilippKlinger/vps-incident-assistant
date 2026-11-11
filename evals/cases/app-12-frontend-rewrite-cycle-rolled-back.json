@@ -1,0 +1,69 @@
+{
+  "id": "app-12-frontend-rewrite-cycle-rolled-back",
+  "group": "app",
+  "note": "The new internal rewrite of /index.html back to / loops, so nginx answered 500 until the deploy workflow rolled the frontend back; the probe already sees the previous image.",
+  "event": {
+    "monitor_name": "Videoflix · Web-App",
+    "url": "https://videoflix.philipp-klinger.com/",
+    "status": "down",
+    "msg": "Request failed with status code 500",
+    "time": "2026-11-24T08:55:19+00:00"
+  },
+  "probe": {
+    "status_code": 200,
+    "error": null,
+    "latency_ms": 5,
+    "headers": {
+      "content-type": "text/html"
+    },
+    "tls_days_left": 71,
+    "addresses": [
+      "203.0.113.10"
+    ]
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/vps-edge",
+      "sha": "c0294171",
+      "minutes_before": 8
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "5dbf40d2",
+      "minutes_before": 600
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "17f4316e",
+      "minutes_before": 1400
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-frontend",
+      "sha": "5ab372f8",
+      "minutes_before": 200
+    }
+  ],
+  "cause": {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "e44aaa51ddbce367d42e7fc072945c20708b9295",
+    "title": "fix: keep index.html out of the address bar",
+    "author": "Philipp Klinger",
+    "files": [
+      "nginx.conf"
+    ],
+    "patch": "diff --git a/nginx.conf b/nginx.conf\n@@ -25,7 +25,8 @@ server {\n     location ~* \\.(?:js|css|woff2?|ttf|svg|png|jpe?g|webp|avif|ico)$ { expires 1y; try_files $uri =404; }\n     # Fonts keep a stable URL for the preload, so they get a shorter lifetime than hashed bundles.\n     location ^~ /fonts/ { expires 30d; try_files $uri =404; }\n-    location = /index.html { expires -1; }\n+    # Links to /index.html land on the start page; the app router owns every path.\n+    location = /index.html { expires -1; rewrite ^ / last; }\n     # Must always show the running build; 404 instead of the app when it is missing.\n     location = /version.json { expires -1; try_files $uri =404; }",
+    "body": "",
+    "minutes_before": 23
+  },
+  "deploy_runs": [
+    "Deploy 2026-11-24 08:40 UTC: failure (repository_dispatch, image-published)",
+    "Deploy 2026-11-24 05:43 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-23 23:03 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "unknown",
+    "suspected_change": "e44aaa51ddbce367d42e7fc072945c20708b9295",
+    "runbook": "videoflix-deploy#deploy-rolled-back"
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "id": "none-03-kuma-outbound-detached",
+  "group": "none",
+  "note": "After an unattended Docker update restarted the daemon, Kuma came back without its outbound network, so all checks fail DNS while the sites answer; no repository change is involved.",
+  "event": {
+    "monitor_name": "Videoflix · Web-App",
+    "url": "https://videoflix.philipp-klinger.com/",
+    "status": "down",
+    "msg": "getaddrinfo EAI_AGAIN videoflix.philipp-klinger.com",
+    "time": "2026-11-22T05:30:12+00:00"
+  },
+  "probe": {
+    "status_code": 200,
+    "error": null,
+    "latency_ms": 27,
+    "headers": {
+      "content-type": "text/html"
+    },
+    "tls_days_left": 73,
+    "addresses": [
+      "203.0.113.10"
+    ]
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/videoflix-frontend",
+      "sha": "7e0de024",
+      "minutes_before": 900
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "9502f215",
+      "minutes_before": 1300
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "2eda84d7",
+      "minutes_before": 2100
+    },
+    {
+      "repo": "PhilippKlinger/vps-monitoring",
+      "sha": "63493095",
+      "minutes_before": 1700
+    }
+  ],
+  "cause": null,
+  "deploy_runs": [
+    "Deploy 2026-11-21 14:38 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-21 07:58 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "unknown",
+    "suspected_change": "none",
+    "runbook": "vps-monitoring#all-monitors-red"
+  }
+}

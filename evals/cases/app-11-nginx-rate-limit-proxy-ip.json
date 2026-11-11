@@ -1,0 +1,68 @@
+{
+  "id": "app-11-nginx-rate-limit-proxy-ip",
+  "group": "app",
+  "note": "The new limit_req zone keys on the client address, which behind Caddy is always the proxy, so all visitors share one bucket and nginx answers 503 during the evening peak.",
+  "event": {
+    "monitor_name": "Videoflix · Web-App",
+    "url": "https://videoflix.philipp-klinger.com/",
+    "status": "down",
+    "msg": "Request failed with status code 503",
+    "time": "2026-11-23T19:48:03+00:00"
+  },
+  "probe": {
+    "status_code": 503,
+    "error": null,
+    "latency_ms": 3,
+    "headers": {
+      "content-type": "text/html"
+    },
+    "tls_days_left": 72,
+    "addresses": [
+      "203.0.113.10"
+    ]
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "30b137ad",
+      "minutes_before": 275
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "64fdbc78",
+      "minutes_before": 120
+    },
+    {
+      "repo": "PhilippKlinger/vps-edge",
+      "sha": "71fdaba8",
+      "minutes_before": 2300
+    },
+    {
+      "repo": "PhilippKlinger/vps-monitoring",
+      "sha": "6c79ff0a",
+      "minutes_before": 800
+    }
+  ],
+  "cause": {
+    "repo": "PhilippKlinger/videoflix-frontend",
+    "sha": "920a8428c2e1694519c4aa94e1276fff1c0bf2e8",
+    "title": "fix: limit requests per client on the app shell",
+    "author": "Philipp Klinger",
+    "files": [
+      "nginx.conf"
+    ],
+    "patch": "diff --git a/nginx.conf b/nginx.conf\n@@ -1,9 +1,15 @@\n # Serves the Angular build behind the Caddy edge proxy; /api/, /admin/ and /static/ go to the backend there.\n+# One client must not be able to flood the app shell; 5 requests per second with a burst\n+# covers a full page load (bundles, fonts, images).\n+limit_req_zone $binary_remote_addr zone=shell:10m rate=5r/s;\n+\n server {\n     listen 8080;\n     server_name _;\n     root /usr/share/nginx/html;\n     index index.html;\n     server_tokens off;\n+    limit_req zone=shell burst=20 nodelay;\n     # Activation and reset tokens are part of request paths; Caddy and Gunicorn keep no access log either.\n     access_log off;",
+    "body": "",
+    "minutes_before": 290
+  },
+  "deploy_runs": [
+    "Deploy 2026-11-23 17:56 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-23 15:06 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "app_error",
+    "suspected_change": "920a8428c2e1694519c4aa94e1276fff1c0bf2e8",
+    "runbook": "videoflix-deploy#app-shell-error"
+  }
+}
