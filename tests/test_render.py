@@ -101,6 +101,13 @@ def test_issue_title():
     assert issue_title(make_ctx()) == "Störung: Videoflix – upstream_502 (Videoflix · API)"
 
 
+def test_issue_title_omits_monitor_name_equal_to_display_name():
+    project = Project("portfolio", "Portfolio", ("Portfolio",), (), (), False)
+    event = EVENT.model_copy(update={"monitor_name": "Portfolio"})
+    ctx = IncidentContext(project, event, RULE, FACTS, (), (), True)
+    assert issue_title(ctx) == "Störung: Portfolio – upstream_502"
+
+
 def test_issue_title_sanitizes_monitor_name():
     event = EVENT.model_copy(update={"monitor_name": "A @x <b>"})
     assert "@" not in issue_title(make_ctx(event=event))

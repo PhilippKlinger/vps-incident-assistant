@@ -50,8 +50,11 @@ def _changes(ctx: IncidentContext) -> str:
 
 
 def issue_title(ctx: IncidentContext) -> str:
-    name = sanitize(ctx.event.monitor_name, 120)
-    return f"Störung: {ctx.project.display_name} – {ctx.rule.category} ({name})"
+    display_name = ctx.project.display_name
+    title = f"Störung: {display_name} – {ctx.rule.category}"
+    if ctx.event.monitor_name == display_name:
+        return title
+    return f"{title} ({sanitize(ctx.event.monitor_name, 120)})"
 
 
 def issue_body(ctx: IncidentContext, *, analysis_pending: bool) -> str:
