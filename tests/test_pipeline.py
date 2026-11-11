@@ -231,6 +231,29 @@ def test_pipeline_reopen_flap():
     assert s.telegram == []
 
 
+def _counting_reader(calls: list) -> GitHubReader:
+    def handler(request):
+        calls.append(request.url.path)
+        return httpx.Response(200, json=[])
+
+    client = httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler))
+    return GitHubReader(client)
+
+
+def test_pipeline_append_and_flap_skip_github_read():
+    for labels, updated in (
+        (["incident", "project:videoflix", "monitor:videoflix-web-app"], None),
+        (["incident", "project:videoflix", "resolved-pending-review"], NOW - timedelta(minutes=3)),
+    ):
+        s = Setup()
+        reads = []
+        s.deps.reader = _counting_reader(reads)
+        s.store.seed(7, labels, updated_at=updated)
+        handle_event(_event(), s.deps)
+        assert len(s.store.calls("POST", "/comments")) == 1
+        assert reads == []
+
+
 def test_pipeline_monitor_up_with_other_monitor_down():
     s = Setup()
     s.store.seed(

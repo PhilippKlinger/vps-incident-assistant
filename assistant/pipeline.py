@@ -57,10 +57,12 @@ class Deps:
     now: Callable[[], datetime]
 
 
-def _build_context(event: KumaEvent, project, deps: Deps, now: datetime) -> IncidentContext:
+def _build_context(
+    event: KumaEvent, project, deps: Deps, now: datetime, *, read_github: bool = True
+) -> IncidentContext:
     probe = deps.probe(event.url) if event.url else None
     rule = classify(event, probe)
-    reader = deps.reader if project.repos else None
+    reader = deps.reader if project.repos and read_github else None
     return build_context(event, project, probe, rule, reader, now)
 
 
@@ -102,10 +104,14 @@ def _apply(
         issues.comment(number, resolved_comment(now - issue.created_at))
         issues.add_labels(number, [RESOLVED])
     elif action is Action.APPEND:
-        issues.comment(number, append_comment(_build_context(event, project, deps, now)))
+        # Follow-up comments show only rule and facts; the GitHub read (about 60 requests)
+        # would hold the issue lock for nothing.
+        ctx = _build_context(event, project, deps, now, read_github=False)
+        issues.comment(number, append_comment(ctx))
         issues.add_labels(number, [label])
     elif action is Action.REOPEN_FLAP:
-        issues.comment(number, flap_comment(_build_context(event, project, deps, now)))
+        ctx = _build_context(event, project, deps, now, read_github=False)
+        issues.comment(number, flap_comment(ctx))
         issues.remove_label(number, RESOLVED)
         issues.add_labels(number, [label])
     elif action is Action.CREATE:
