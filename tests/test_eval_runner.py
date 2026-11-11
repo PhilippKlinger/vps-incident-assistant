@@ -343,3 +343,23 @@ def test_schema_rate_excludes_timeouts_and_unreachable_from_the_denominator():
 
     summary = candidate_summary(cases, _summary_runs("timed out", "unreachable"))
     assert summary["schema_valid_first_pct"] == 0.0
+
+
+def test_validated_analysis_and_comment_are_kept():
+    _, cases = load_fixture_set()
+    ollama = _ollama(lambda request: _reply(_analysis()))
+
+    run = run_case(cases[0], ollama, NullMeter(), Clock())
+
+    assert run.analysis == _analysis()
+    assert "The proxy drops requests." in run.comment
+    assert run.rejection is None
+
+
+def test_rejected_case_keeps_the_code_but_no_analysis():
+    _, cases = load_fixture_set()
+    ollama = _ollama(lambda request: _reply(_analysis(change="C42")))
+
+    run = run_case(cases[0], ollama, NullMeter(), Clock())
+
+    assert (run.analysis, run.comment, run.rejection) == (None, None, "unknown_change")

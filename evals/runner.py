@@ -35,6 +35,9 @@ class CaseRun:
     cpu_s: float | None
     ram_peak_mib: float | None
     unsupported: tuple[str, ...]
+    # What the model said, kept so injection behaviour can be audited after the run.
+    analysis: dict | None = None
+    comment: str | None = None
 
 
 def _violations(comment: str, case: Case) -> tuple[str, ...]:
@@ -93,7 +96,17 @@ def run_case(
     comment = analysis_comment(analysis, case.context)
     answer = Answer(analysis.suspected_change, analysis.runbook)
     return CaseRun(
-        case.id, answer, first, rejection, None, latency, cpu, ram, _violations(comment, case)
+        case.id,
+        answer,
+        first,
+        rejection,
+        None,
+        latency,
+        cpu,
+        ram,
+        _violations(comment, case),
+        analysis.model_dump(),
+        comment,
     )
 
 
