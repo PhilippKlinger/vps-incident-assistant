@@ -1,0 +1,130 @@
+[
+  {
+    "repo": "PhilippKlinger/vps-monitoring",
+    "sha": "43ed6697ec769960ae0469b02f479eb3dc94883c",
+    "title": "docs: show the incident network in the diagram",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-11T07:38:07+00:00",
+    "files": [
+      "README.md"
+    ],
+    "patch": "diff --git a/README.md b/README.md\n@@ -16,9 +16,11 @@ flowchart LR\n     subgraph vps [VPS]\n         caddy[\"Caddy<br/>(vps-edge)\"]\n         kuma[\"Uptime Kuma<br/>(this repo)\"]\n+        incident[\"Incident assistant<br/>(vps-incident-assistant)\"]\n         apps[\"Project stacks<br/>(e.g. videoflix-deploy)\"]\n         caddy -- \"network edge\" --> apps\n         caddy -- \"network monitoring<br/>status page only\" --> kuma\n+        kuma -- \"network incident<br/>alert webhook\" --> incident\n     end\n     kuma -->|\"checks public URLs<br/>(network outbound)\"| internet([Internet])\n     internet --> caddy",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/vps-monitoring",
+    "sha": "20773ef91f3f57ba9b3a0d4b248cff1b3a6cd33f",
+    "title": "feat: add internal incident network for the assistant",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-10T19:44:51+00:00",
+    "files": [
+      ".github/workflows/ci.yml",
+      "README.md",
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\n@@ -92,13 +92,14 @@ jobs:\n           echo \"uid=${uid}\"\n           test \"${uid}\" != \"0\"\n \n-      # Kuma may only see Caddy (network \"monitoring\") and the internet, never a project network.\n+      # Kuma may only see Caddy (network \"monitoring\"), the internet and the incident assistant\n+      # (network \"incident\"), never a project network.\n       - name: Container is only in the expected networks\n         run: |\n           set -Eeuo pipefail\n           networks=\"$(docker inspect --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' \"$(docker compose ps -q uptime-kuma)\")\"\n           echo \"Networks: ${networks}\"\n-          test \"$(tr ' ' '\\n' <<< \"${networks}\" | sed '/^$/d' | sort | tr '\\n' ' ')\" = \"monitoring monitoring_outbound \"\n+          test \"$(tr ' ' '\\n' <<< \"${networks}\" | sed '/^$/d' | sort | tr '\\n' ' ')\" = \"incident monitoring monitoring_outbound \"\n \n       - name: No Docker socket mounted\n         run: |\ndiff --git a/README.md b/README.md\n@@ -27,6 +27,7 @@ flowchart LR\n - Kuma is not part of the network `edge`: it cannot reach any project container and checks every service the way a visitor does (DNS, TLS certificate, Caddy, app).\n - The network `monitoring` belongs to [vps-edge](https://github.com/PhilippKlinger/vps-edge) and is internal. Caddy publishes only the status page, its API, badges and static files; everything else, including the dashboard and login, returns 404.\n - The dashboard is bound to `127.0.0.1:3001` on the server and is only reachable through an SSH tunnel.\n+- The network `incident` is defined in this stack, internal, and joined only by Kuma and the incident assistant (`incident-assistant:8080`). It carries the alert webhook and nothing else.\n \n ## Contents\n \n@@ -87,9 +88,22 @@ All monitors: type HTTP(s), interval 60 s, retries 3, retry interval 60 s, *Cert\n | Portfolio | `https://philipp-klinger.com/` | `portfolio` |\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/vps-monitoring",
+    "sha": "47445d6ca136386fae5b95dafb74313498c75294",
+    "title": "docs: add troubleshooting runbook sorted by monitor symptom",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-10T15:08:26+00:00",
+    "files": [
+      "README.md"
+    ],
+    "patch": "diff --git a/README.md b/README.md\n@@ -116,3 +116,27 @@ curl -sI https://status.philipp-klinger.com/dashboard | head -1\n \n - Kuma runs on the same VPS it watches: if the whole server is down, no alert goes out. An external check is planned for later.\n - The public heartbeat API of Kuma 2 returns the 24-hour uptime only; the 30-day value is available as a badge.\n+\n+## Troubleshooting\n+\n+Commands run in `/srv/monitoring`. Problems of the proxy itself are in the runbook of [vps-edge](https://github.com/PhilippKlinger/vps-edge#troubleshooting).\n+\n+### Status page down\n+\n+**Symptom:** the status page returns 404 or 502, the monitored sites work.\n+\n+**Check:** `docker compose ps` shows whether `uptime-kuma` is healthy; `docker network inspect monitoring --format '{{range .Containers}}{{.Name}} {{end}}'` must list Caddy and Kuma. A 404 on a path that should be public points to the allowlist in `sites/status.caddy` of vps-edge.\n+\n+**Fix:** Kuma not healthy → `docker compose logs --tail 50 uptime-kuma`, then `docker compose up -d`. Network missing → start or update vps-edge first, then `docker compose up -d` here.\n+\n+**Way back:** revert the image update or the allowlist change through a pull request.\n+\n+### All monitors red\n+\n+**Symptom:** all monitors report down at the same moment, but the sites open from outside.\n+\n+**Check:** Kuma reaches nothing outside: `docker compose exec uptime-kuma getent hosts github.com` fails, or the network `outbound` is missing in `docker compose ps --format '{{.Networks}}'`. On the host, `resolvectl status` shows whether DNS works.\n+\n+**Fix:** `docker compose up -d --force-recreate` attaches the networks again; a DNS problem of the host is fixed on the host. No change in this repository causes this case, so there is nothing to roll back.\n+\n+**Way back:** none needed.",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/vps-monitoring",
+    "sha": "63493095e6259888d7317eff4b6dffa12ca6b092",
+    "title": "docs: drop the planned Conduit monitor",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-10T14:00:16+00:00",
+    "files": [
+      "README.md"
+    ],
+    "patch": "diff --git a/README.md b/README.md\n@@ -88,7 +88,7 @@ All monitors: type HTTP(s), interval 60 s, retries 3, retry interval 60 s, *Cert\n | Neuro Check-in · Web | `https://neurocheckin.de/` | `neuro-check-in` |\n | Blog | `https://philippklinger.github.io/my-dso-blog/` | none (internal) |\n \n-Next: Conduit (web app and API, status page `conduit`) once it runs on the VPS.\n+New projects follow the same pattern: one monitor per public endpoint, one status page per project.\n \n ### Status pages\n ",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/vps-monitoring",
+    "sha": "6c79ff0a1175dbfe16cb10b17dae51f9e86e0f06",
+    "title": "docs: alerts go to Telegram, align monitor names with the setup",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-10T11:44:39+00:00",
+    "files": [
+      "README.md"
+    ],
+    "patch": "diff --git a/README.md b/README.md\n@@ -41,7 +41,7 @@ flowchart LR\n |---|---|---|\n | Database | `compose.yaml` (`UPTIME_KUMA_DB_TYPE`) | `sqlite`, skips the setup page |\n | Monitors, status pages, notifications | Kuma dashboard, stored in `kuma_data` | see [Runbook](#runbook) |\n-| SMTP credentials for alerts | Kuma dashboard only | never in Git or `.env` |\n+| Telegram bot token for alerts | Kuma dashboard only | never in Git or `.env` |\n \n The stack needs no `.env`.\n \n@@ -74,7 +74,7 @@ Update: change the image in `compose.yaml` through a pull request (Dependabot),\n 1. Open the dashboard through the tunnel and create the admin account (long password), then enable 2FA under *Settings → Security*.\n 2. *Settings → General*: time zone `Europe/Berlin`, *Primary Base URL* `https://status.philipp-klinger.com`.\n 3. *Settings → Reverse Proxy*: *Trust Proxy* `Yes` (Caddy sets `X-Forwarded-For`).\n-4. *Settings → Notifications*: SMTP notification with an existing mailbox, *Default enabled* and *Apply on all existing monitors*.\n+4. *Settings → Notifications*: Telegram notification with a dedicated bot (token and chat ID from the password manager), *Default enabled* and *Apply on all existing monitors*, then *Test*.\n \n ### Monitors\n \n@@ -85,7 +85,7 @@ All monitors: type HTTP(s), interval 60 s, retries 3, retry interval 60 s, *Cert\n | Videoflix · Web-App | `https://videoflix.philipp-klinger.com/` | `videoflix` |\n | Videoflix · API | `https://videoflix.philipp-klinger.com/api/health/` | `videoflix` |\n | Portfolio | `https://philipp-klinger.com/` | `portfolio` |\n-| Neuro Check-in · Website | `https://neurocheckin.de/` | `neuro-check-in` |\n+| Neuro Check-in · Web | `https://neurocheckin.de/` | `neuro-check-in` |\n | Blog | `https://philippklinger.github.io/my-dso-blog/` | none (internal) |\n \n Next: Conduit (web app and API, status page `conduit`) once it runs on the VPS.\n@@ -96,7 +96,7 @@ Next: Conduit (web app and API, status page `conduit`) once it runs on the VPS.\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/vps-monitoring",
+    "sha": "4132b4925b8769226a689f576401a30599470e48",
+    "title": "ci: accept bundled Kuma vulnerabilities with reason and expiry",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-10T09:57:24+00:00",
+    "files": [
+      ".github/workflows/ci.yml",
+      ".trivyignore.yaml",
+      "README.md"
+    ],
+    "patch": "diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\n@@ -146,10 +146,13 @@ jobs:\n \n       # Official Trivy image pinned by digest instead of a third-party action.\n       # Reports HIGH and CRITICAL, fails on critical findings that already have a fix.\n+      # Accepted risks with reason and expiry date: .trivyignore.yaml\n       - name: Scan image with Trivy\n         run: |\n           set -Eeuo pipefail\n           image=\"$(sed -n 's/^ *image: *//p' compose.yaml)\"\n           echo \"Image: ${image}\"\n           docker run --rm \"${TRIVY_IMAGE}\" image --no-progress --severity HIGH,CRITICAL --ignore-unfixed \"${image}\"\n-          docker run --rm \"${TRIVY_IMAGE}\" image --no-progress --quiet --severity CRITICAL --ignore-unfixed --exit-code 1 \"${image}\"\n+          docker run --rm -v \"${PWD}/.trivyignore.yaml:/trivyignore.yaml:ro\" \"${TRIVY_IMAGE}\" \\\n+            image --no-progress --quiet --severity CRITICAL --ignore-unfixed \\\n+            --ignorefile /trivyignore.yaml --exit-code 1 \"${image}\"\ndiff --git a/.trivyignore.yaml b/.trivyignore.yaml\n@@ -0,0 +1,30 @@\n+# Accepted risks for the pinned Uptime Kuma image, reviewed 2026-11-10.\n+# 2.5.9 is the newest release; these components are bundled by the image and have no fix there yet.\n+# Each entry expires: after that date the CI fails again and the finding has to be reviewed anew.\n+# Remove an entry as soon as an image update ships the fix (Dependabot pull request).\n+vulnerabilities:\n+  - id: CVE-2026-111497\n+    statement: >-\n+      libbrotli1 (Debian base). Kuma only decodes responses of the monitored sites, which are our own;\n+      no untrusted input reaches the decoder.\n+    expired_at: 2026-12-10\n+  - id: CVE-2026-41242\n+    statement: >-\n+      protobufjs (npm). Only used by gRPC monitors whose proto definition the admin enters; the dashboard\n+      is reachable only through an SSH tunnel and no gRPC monitors are configured.\n+    expired_at: 2026-12-10\n+  - id: CVE-2026-59873\n+    statement: >-\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/vps-monitoring",
+    "sha": "21ae80ac1d57af32db160ac343dca9318fcda18b",
+    "title": "docs: add README with architecture and runbook",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-10T09:38:16+00:00",
+    "files": [
+      "README.md"
+    ],
+    "patch": "diff --git a/README.md b/README.md\n@@ -0,0 +1,117 @@\n+# vps-monitoring\n+\n+[![CI](https://github.com/PhilippKlinger/vps-monitoring/actions/workflows/ci.yml/badge.svg)](https://github.com/PhilippKlinger/vps-monitoring/actions/workflows/ci.yml)\n+[![Security Checks](https://github.com/PhilippKlinger/vps-monitoring/actions/workflows/security.yml/badge.svg)](https://github.com/PhilippKlinger/vps-monitoring/actions/workflows/security.yml)\n+[![CodeQL](https://github.com/PhilippKlinger/vps-monitoring/actions/workflows/codeql.yml/badge.svg)](https://github.com/PhilippKlinger/vps-monitoring/actions/workflows/codeql.yml)\n+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/PhilippKlinger/vps-monitoring/badge)](https://scorecard.dev/viewer/?uri=github.com/PhilippKlinger/vps-monitoring)\n+\n+Monitoring stack for all projects on the VPS: [Uptime Kuma](https://github.com/louislam/uptime-kuma) checks the public HTTPS addresses, sends alerts and serves the public status page at [status.philipp-klinger.com](https://status.philipp-klinger.com).\n+\n+## Architecture\n+\n+```mermaid\n+flowchart LR\n+    visitor([Visitor]) -->|HTTPS| caddy\n+    admin([Admin]) -->|SSH tunnel| kuma\n+    subgraph vps [VPS]\n+        caddy[\"Caddy<br/>(vps-edge)\"]\n+        kuma[\"Uptime Kuma<br/>(this repo)\"]\n+        apps[\"Project stacks<br/>(e.g. videoflix-deploy)\"]\n+        caddy -- \"network edge\" --> apps\n+        caddy -- \"network monitoring<br/>status page only\" --> kuma\n+    end\n+    kuma -->|\"checks public URLs<br/>(network outbound)\"| internet([Internet])\n+    internet --> caddy\n+```\n+\n+- Kuma is not part of the network `edge`: it cannot reach any project container and checks every service the way a visitor does (DNS, TLS certificate, Caddy, app).\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/vps-monitoring",
+    "sha": "e0bd5cca59c450ddab08837c3bee94fc0132e9a7",
+    "title": "ci: validate, smoke test and scan the monitoring stack",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-10T09:38:16+00:00",
+    "files": [
+      ".github/workflows/ci.yml",
+      ".github/workflows/codeql.yml",
+      ".github/workflows/scorecard.yml",
+      ".github/workflows/security.yml"
+    ],
+    "patch": "diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\n@@ -0,0 +1,155 @@\n+# Actions are pinned by commit SHA; the comment shows the readable version.\n+# Validates the stack, starts it for real and scans the pinned image.\n+name: CI\n+\n+on:\n+  push:\n+    branches: [main]\n+  pull_request:\n+    branches: [main]\n+  # Scheduled runs catch image vulnerabilities published after the last push.\n+  schedule:\n+    - cron: \"17 4 * * 1\"\n+  workflow_dispatch:\n+\n+permissions:\n+  contents: read\n+\n+concurrency:\n+  group: ci-${{ github.ref }}\n+  cancel-in-progress: true\n+\n+env:\n+  TRIVY_IMAGE: aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c\n+  ACTIONLINT_IMAGE: rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667\n+\n+jobs:\n+  validate:\n+    name: Validate compose and workflows\n+    runs-on: ubuntu-latest\n+    timeout-minutes: 5\n+    steps:\n+      - name: Check out repository\n+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n+        with:\n+          persist-credentials: false\n+\n+      # On the server vps-edge creates this network; here it is a stand-in.\n+      - name: Create external network\n+        run: docker network create --internal monitoring\n+\n+      - name: Validate compose.yaml\n+        run: docker compose config --quiet\n+\n+      - name: Lint workflows (actionlint)\n+        run: docker run --rm -v \"${PWD}:/repo\" -w /repo \"${ACTIONLINT_IMAGE}\" -color\n+\n+  smoke-test:\n+    name: Start stack and check security properties\n+    needs: validate\n+    runs-on: ubuntu-latest\n+    timeout-minutes: 10\n+    steps:\n+      - name: Check out repository\n+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n+        with:\n+          persist-credentials: false\n+\n+      - name: Start stack\n+        run: |\n+          docker network create --internal monitoring\n+          docker compose up -d\n+\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/vps-monitoring",
+    "sha": "6a7d93d71ae48a2bfd9124ff6d28f8dcd38f4a45",
+    "title": "feat: add Uptime Kuma stack behind the edge proxy",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-10T09:38:16+00:00",
+    "files": [
+      ".github/dependabot.yml",
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/.github/dependabot.yml b/.github/dependabot.yml\n@@ -0,0 +1,22 @@\n+version: 2\n+updates:\n+  # Uptime Kuma image in compose.yaml\n+  - package-ecosystem: \"docker-compose\"\n+    directory: \"/\"\n+    schedule:\n+      interval: \"weekly\"\n+    # Wait 14 days before proposing a new release; security updates are not delayed.\n+    cooldown:\n+      default-days: 14\n+    commit-message:\n+      prefix: \"chore(deps)\"\n+\n+  # Pinned action SHAs in .github/workflows\n+  - package-ecosystem: \"github-actions\"\n+    directory: \"/\"\n+    schedule:\n+      interval: \"weekly\"\n+    cooldown:\n+      default-days: 14\n+    commit-message:\n+      prefix: \"ci(deps)\"\ndiff --git a/compose.yaml b/compose.yaml\n@@ -0,0 +1,41 @@\n+# Monitoring stack: Uptime Kuma checks the public HTTPS addresses and serves the public status page.\n+# Caddy (vps-edge) reaches it over the network \"monitoring\"; no project container is reachable from here.\n+name: monitoring\n+\n+services:\n+  uptime-kuma:\n+    # slim: SQLite only, no embedded MariaDB or Chromium; rootless: runs as user \"node\"\n+    image: louislam/uptime-kuma:2.5.9-slim-rootless@sha256:053a48927ee714b1da78c6810041a44a266bd8c06dc30ead5b3f459d0f219fb0\n+    environment:\n+      # Skips the database setup page on the first start; SQLite lives in the volume below\n+      UPTIME_KUMA_DB_TYPE: sqlite\n+    volumes:\n+      # SQLite database: monitors, status pages, notifications and the uptime history\n+      - kuma_data:/app/data\n+    ports:\n+      # Dashboard only through an SSH tunnel. Never bind to 0.0.0.0: Docker bypasses ufw\n+      - \"127.0.0.1:3001:3001\"\n+    # The image brings its own healthcheck (extra/healthcheck)\n+    cap_drop: [ALL]\n+    security_opt: [\"no-new-privileges:true\"]\n+    mem_limit: 512m\n+    cpus: 1\n+    pids_limit: 256\n+    restart: unless-stopped\n+    # Same as the other stacks: journald deletes logs after 14 days (vps-edge host/journald-retention.conf)\n+    logging:\n+      driver: journald\n+    networks: [monitoring, outbound]\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/vps-monitoring",
+    "sha": "4bcc8517e2c7b9eb41753180d28ab95f9541dc0c",
+    "title": "chore: initialize repository",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-10T09:36:13+00:00",
+    "files": [
+      ".gitignore"
+    ],
+    "patch": "diff --git a/.gitignore b/.gitignore\n@@ -0,0 +1 @@\n+.env",
+    "body": ""
+  }
+]

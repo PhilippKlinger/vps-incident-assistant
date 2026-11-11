@@ -1,0 +1,136 @@
+[
+  {
+    "repo": "PhilippKlinger/vps-edge",
+    "sha": "c02941719bd3e3b6af0b929b2a2193c01b960499",
+    "title": "docs: add troubleshooting runbook sorted by monitor symptom",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-10T15:08:22+00:00",
+    "files": [
+      "README.md"
+    ],
+    "patch": "diff --git a/README.md b/README.md\n@@ -65,3 +65,37 @@ Locally:\n ```bash\n docker run --rm -e ACME_EMAIL=test@example.com -v \"$PWD/Caddyfile:/etc/caddy/Caddyfile:ro\" -v \"$PWD/sites:/etc/caddy/sites:ro\" caddy:2.11.9-alpine caddy validate --config /etc/caddy/Caddyfile\n ```\n+\n+## Troubleshooting\n+\n+Sorted by what the monitors report. Commands run in `/srv/edge`. Project-specific cases are in the runbook of each project, e.g. [videoflix-deploy](https://github.com/PhilippKlinger/videoflix-deploy#troubleshooting).\n+\n+### Proxy down\n+\n+**Symptom:** every site on the VPS refuses connections or times out, the status page as well.\n+\n+**Check:** `docker compose ps` shows Caddy stopped or restarting; `docker compose logs --tail 50 caddy` names the file and line of a config error.\n+\n+**Fix:** the usual cause is a change to `Caddyfile` or `sites/`. Validate it with the command under [Check](#check) and correct it through a pull request. Until then restore the last working files from Git and `docker compose restart caddy`.\n+\n+**Way back:** none needed once the fixed config is merged and Caddy is restarted.\n+\n+### Upstream 502\n+\n+**Symptom:** one site or path returns 502, the other sites work.\n+\n+**Check:** the Caddy log shows `no such host` or `connection refused` for the upstream. `docker network inspect edge --format '{{range .Containers}}{{.Name}} {{end}}'` lists the containers on `edge`; `docker compose ps` in the project stack shows whether the target runs.\n+\n+**Fix:** target container down → runbook of the project. Container up but unreachable → the network alias in the project's `compose.yaml` and the upstream in `sites/*.caddy` must match (`videoflix-web`, `videoflix-frontend`) and the service must join `edge`.\n+\n+**Way back:** revert the change that renamed the alias or the upstream.\n+\n+### Certificate\n+\n+**Symptom:** TLS error in the browser, or the certificate warning of the monitors 14 days before expiry.\n+\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/vps-edge",
+    "sha": "e15a7ec2d8c2ff272b3309d166cd22e91748d0d9",
+    "title": "fix(deps): update Caddy to 2.11.9 for the critical brotli fix",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-10T09:48:33+00:00",
+    "files": [
+      "README.md",
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/README.md b/README.md\n@@ -63,5 +63,5 @@ The CI starts the real proxy configuration with certificates from Caddy's local\n Locally:\n \n ```bash\n-docker run --rm -e ACME_EMAIL=test@example.com -v \"$PWD/Caddyfile:/etc/caddy/Caddyfile:ro\" -v \"$PWD/sites:/etc/caddy/sites:ro\" caddy:2.11.7-alpine caddy validate --config /etc/caddy/Caddyfile\n+docker run --rm -e ACME_EMAIL=test@example.com -v \"$PWD/Caddyfile:/etc/caddy/Caddyfile:ro\" -v \"$PWD/sites:/etc/caddy/sites:ro\" caddy:2.11.9-alpine caddy validate --config /etc/caddy/Caddyfile\n ```\ndiff --git a/compose.yaml b/compose.yaml\n@@ -4,7 +4,7 @@ name: edge\n \n services:\n   caddy:\n-    image: caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5\n+    image: caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee\n     ports:\n       - \"80:80\"\n       - \"443:443\"",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/vps-edge",
+    "sha": "aa31222957592a8bde7b082bc483216967b93100",
+    "title": "docs: describe the status page, monitoring network and checks",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-10T09:40:14+00:00",
+    "files": [
+      "README.md"
+    ],
+    "patch": "diff --git a/README.md b/README.md\n@@ -1,14 +1,21 @@\n # vps-edge\n \n+[![CI](https://github.com/PhilippKlinger/vps-edge/actions/workflows/ci.yml/badge.svg)](https://github.com/PhilippKlinger/vps-edge/actions/workflows/ci.yml)\n+[![Security Checks](https://github.com/PhilippKlinger/vps-edge/actions/workflows/security.yml/badge.svg)](https://github.com/PhilippKlinger/vps-edge/actions/workflows/security.yml)\n+[![CodeQL](https://github.com/PhilippKlinger/vps-edge/actions/workflows/codeql.yml/badge.svg)](https://github.com/PhilippKlinger/vps-edge/actions/workflows/codeql.yml)\n+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/PhilippKlinger/vps-edge/badge)](https://scorecard.dev/viewer/?uri=github.com/PhilippKlinger/vps-edge)\n+\n Shared edge proxy for all projects on the VPS: [Caddy](https://caddyserver.com/) terminates TLS and routes requests to the project stacks.\n \n ## Contents\n \n - `compose.yaml`: Caddy (pinned by digest), the only service with published ports (80, 443, 443/udp), dropped capabilities\n - `Caddyfile`: automatic HTTPS, admin API off, shared `security_headers` snippet, imports `sites/*.caddy`\n - `sites/videoflix.caddy`: `/api/`, `/admin/`, `/static/`, API docs → `videoflix-web:8000` (body limit 55 MB), everything else → `videoflix-frontend:8080`\n-- `sites/status.caddy`: placeholder for `status.philipp-klinger.com` (503) until Uptime Kuma runs, so the name already has a valid certificate under HSTS `includeSubDomains`\n+- `sites/status.caddy`: public status page of Uptime Kuma ([vps-monitoring](https://github.com/PhilippKlinger/vps-monitoring)) at `status.philipp-klinger.com`. Only the status page, its read-only API, badges and static files are let through (GET/HEAD); dashboard, login, socket.io and metrics return 404\n - Docker network `edge`: project stacks join it as an external network and are reached by their network alias\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/vps-edge",
+    "sha": "492d8cd519bfb67a246943c6333b91a3fceb8ec1",
+    "title": "ci: validate, smoke test and scan the edge proxy",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-10T09:40:14+00:00",
+    "files": [
+      ".github/dependabot.yml",
+      ".github/workflows/ci.yml",
+      ".github/workflows/codeql.yml",
+      ".github/workflows/scorecard.yml",
+      ".github/workflows/security.yml"
+    ],
+    "patch": "diff --git a/.github/dependabot.yml b/.github/dependabot.yml\n@@ -5,7 +5,18 @@ updates:\n     directory: \"/\"\n     schedule:\n       interval: \"weekly\"\n+    # Wait 14 days before proposing a new release; security updates are not delayed.\n     cooldown:\n       default-days: 14\n     commit-message:\n       prefix: \"chore(deps)\"\n+\n+  # Pinned action SHAs in .github/workflows\n+  - package-ecosystem: \"github-actions\"\n+    directory: \"/\"\n+    schedule:\n+      interval: \"weekly\"\n+    cooldown:\n+      default-days: 14\n+    commit-message:\n+      prefix: \"ci(deps)\"\ndiff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\n@@ -0,0 +1,211 @@\n+# Actions are pinned by commit SHA; the comment shows the readable version.\n+# Validates the proxy configuration, starts it for real against stand-in upstreams and scans the image.\n+name: CI\n+\n+on:\n+  push:\n+    branches: [main]\n+  pull_request:\n+    branches: [main]\n+  # Scheduled runs catch image vulnerabilities published after the last push.\n+  schedule:\n+    - cron: \"11 4 * * 1\"\n+  workflow_dispatch:\n+\n+permissions:\n+  contents: read\n+\n+concurrency:\n+  group: ci-${{ github.ref }}\n+  cancel-in-progress: true\n+\n+env:\n+  TRIVY_IMAGE: aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c\n+  ACTIONLINT_IMAGE: rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667\n+  # Tiny HTTP server that answers every path with its own hostname: shows which upstream Caddy chose\n+  STUB_IMAGE: traefik/whoami:v1.12.0@sha256:c4717a8d1f0134a7444e24f881160e033991f23027c6c5a9a3f8fd22e70d1d44\n+  # Placeholder for the compose file; no certificate is requested in CI\n+  ACME_EMAIL: ci@example.com\n+\n+jobs:\n+  validate:\n+    name: Validate compose, Caddyfile and workflows\n+    runs-on: ubuntu-latest\n+    timeout-minutes: 5\n+    steps:\n+      - name: Check out repository\n+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n+        with:\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/vps-edge",
+    "sha": "3a1b0d5b505dedfd94e84d9b053c48722f5b4407",
+    "title": "feat: serve the Uptime Kuma status page through an allowlist",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-10T09:40:14+00:00",
+    "files": [
+      "compose.yaml",
+      "sites/status.caddy"
+    ],
+    "patch": "diff --git a/compose.yaml b/compose.yaml\n@@ -24,12 +24,18 @@ services:\n     # json-file only rotates by size; the time limit comes from host/journald-retention.conf\n     logging:\n       driver: journald\n-    networks: [edge]\n+    # edge: project stacks; monitoring: Uptime Kuma (vps-monitoring), nothing else\n+    networks: [edge, monitoring]\n \n networks:\n   edge:\n     # Fixed name, so project stacks can join it as an external network\n     name: edge\n+  monitoring:\n+    # Fixed name, joined by vps-monitoring. Internal: only Caddy and Kuma, no route outside.\n+    # Owned here, so the proxy starts even if the monitoring stack is missing.\n+    name: monitoring\n+    internal: true\n \n volumes:\n   # Certificates and ACME account: keep this volume, otherwise Caddy requests new certificates\ndiff --git a/sites/status.caddy b/sites/status.caddy\n@@ -1,7 +1,23 @@\n-# Status page: placeholder until Uptime Kuma runs, so the domain already has a valid certificate.\n-# The portfolio sends HSTS with includeSubDomains; without a certificate browsers would block this name.\n+# Public status page: Uptime Kuma from vps-monitoring, reached over the internal network \"monitoring\".\n+# Kuma serves dashboard, login and socket.io on the same port, so only the public status page\n+# is let through; everything else returns 404 here. The dashboard is used through an SSH tunnel.\n status.philipp-klinger.com {\n \timport security_headers\n+\tencode zstd gzip\n \n-\trespond \"Status page coming soon.\" 503\n+\t# Start page: the Videoflix status page\n+\tredir / /status/videoflix\n+\n+\t# Status page, its read-only API, badges and the static files of the single-page app\n+\t@public {\n+\t\tmethod GET HEAD\n+\t\tpath /status/* /api/status-page/* /api/badge/* /assets/* /upload/* /icon.svg /favicon.ico /apple-touch-icon.png /apple-touch-icon-precomposed.png /manifest.json /robots.txt\n+\t}\n+\thandle @public {\n+\t\treverse_proxy uptime-kuma:3001\n+\t}\n+\n+\thandle {\n+\t\trespond 404\n+\t}\n }",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/vps-edge",
+    "sha": "34110dccd295aad2697992797a4f6387078e1c46",
+    "title": "chore: add Dependabot version updates",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-09T06:10:55+00:00",
+    "files": [
+      ".github/dependabot.yml"
+    ],
+    "patch": "diff --git a/.github/dependabot.yml b/.github/dependabot.yml\n@@ -0,0 +1,11 @@\n+version: 2\n+updates:\n+  # Caddy image in compose.yaml\n+  - package-ecosystem: \"docker-compose\"\n+    directory: \"/\"\n+    schedule:\n+      interval: \"weekly\"\n+    cooldown:\n+      default-days: 14\n+    commit-message:\n+      prefix: \"chore(deps)\"",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/vps-edge",
+    "sha": "71fdaba82262be5584da1448f320e9161dfa051a",
+    "title": "feat: serve a placeholder on the status domain until uptime kuma runs",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-08T15:24:54+00:00",
+    "files": [
+      "README.md",
+      "sites/status.caddy"
+    ],
+    "patch": "diff --git a/README.md b/README.md\n@@ -7,6 +7,7 @@ Shared edge proxy for all projects on the VPS: [Caddy](https://caddyserver.com/)\n - `compose.yaml`: Caddy (pinned by digest), the only service with published ports (80, 443, 443/udp), dropped capabilities\n - `Caddyfile`: automatic HTTPS, admin API off, shared `security_headers` snippet, imports `sites/*.caddy`\n - `sites/videoflix.caddy`: `/api/`, `/admin/`, `/static/`, API docs → `videoflix-web:8000` (body limit 55 MB), everything else → `videoflix-frontend:8080`\n+- `sites/status.caddy`: placeholder for `status.philipp-klinger.com` (503) until Uptime Kuma runs, so the name already has a valid certificate under HSTS `includeSubDomains`\n - Docker network `edge`: project stacks join it as an external network and are reached by their network alias\n - `host/journald-retention.conf`: deletes logs on the VPS after 14 days at the latest\n \ndiff --git a/sites/status.caddy b/sites/status.caddy\n@@ -0,0 +1,7 @@\n+# Status page: placeholder until Uptime Kuma runs, so the domain already has a valid certificate.\n+# The portfolio sends HSTS with includeSubDomains; without a certificate browsers would block this name.\n+status.philipp-klinger.com {\n+\timport security_headers\n+\n+\trespond \"Status page coming soon.\" 503\n+}",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/vps-edge",
+    "sha": "5c6be282ffc94428411139a403ee62211ea04e79",
+    "title": "fix(logs): keep logs for 14 days at most",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-05T13:28:07+00:00",
+    "files": [
+      "README.md",
+      "compose.yaml",
+      "host/journald-retention.conf"
+    ],
+    "patch": "diff --git a/README.md b/README.md\n@@ -8,6 +8,7 @@ Shared edge proxy for all projects on the VPS: [Caddy](https://caddyserver.com/)\n - `Caddyfile`: automatic HTTPS, admin API off, shared `security_headers` snippet, imports `sites/*.caddy`\n - `sites/videoflix.caddy`: `/api/`, `/admin/`, `/static/`, API docs → `videoflix-web:8000` (body limit 55 MB), everything else → `videoflix-frontend:8080`\n - Docker network `edge`: project stacks join it as an external network and are reached by their network alias\n+- `host/journald-retention.conf`: deletes logs on the VPS after 14 days at the latest\n \n Project stacks (e.g. [videoflix-deploy](https://github.com/PhilippKlinger/videoflix-deploy)) stay independent and replaceable; they never publish ports themselves. No access log is written, because activation and reset tokens are part of request paths.\n \n@@ -22,6 +23,26 @@ docker compose logs -f caddy             # certificate issuance\n \n A new project gets its own file in `sites/`, then `docker compose restart caddy`. DNS for the domain must point to the VPS before the first start, otherwise the certificate request fails.\n \n+## Log retention\n+\n+The privacy policy promises that server logs are deleted after 14 days at the latest. `json-file` can only rotate by size, so a quiet container could keep old entries for months. All containers therefore log to journald, which has a time limit. Caddy writes no access log and no log file, so there is nothing to rotate on its side; its error log can still contain client addresses, and that ends up in the journal too.\n+\n+The setting applies to the whole journal of the host, so system logs are kept for 14 days as well. Set it up before the stacks switch to journald:\n+\n+```bash\n+sudo install -d /etc/systemd/journald.conf.d\n+sudo cp /srv/edge/host/journald-retention.conf /etc/systemd/journald.conf.d/retention.conf\n+sudo systemctl restart systemd-journald\n… truncated",
+    "body": "json-file only rotates by size. Caddy logs to journald now and the host config limits the journal by time. Caddy writes no access log, so roll_keep_for is not needed."
+  },
+  {
+    "repo": "PhilippKlinger/vps-edge",
+    "sha": "5f401f3c72161b4d47ba24281b33009abc904644",
+    "title": "feat: add caddy edge proxy with videoflix site",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-04T16:12:43+00:00",
+    "files": [
+      ".env.example",
+      ".gitignore",
+      "Caddyfile",
+      "README.md",
+      "compose.yaml",
+      "sites/videoflix.caddy"
+    ],
+    "patch": "diff --git a/.env.example b/.env.example\n@@ -0,0 +1,4 @@\n+# Copy to .env on the server (chmod 600). Required values have no default.\n+\n+# Required: contact address for Let's Encrypt (certificate expiry notices)\n+ACME_EMAIL=\ndiff --git a/.gitignore b/.gitignore\n@@ -0,0 +1 @@\n+.env\ndiff --git a/Caddyfile b/Caddyfile\n@@ -0,0 +1,20 @@\n+{\n+\temail {$ACME_EMAIL}\n+\t# The admin API is not needed: configuration changes go through a container restart\n+\tadmin off\n+}\n+\n+# Security headers shared by all sites; \"header\" replaces values set by the backends,\n+# so no header appears twice. The Content-Security-Policy stays with each frontend.\n+(security_headers) {\n+\theader {\n+\t\tStrict-Transport-Security \"max-age=31536000; includeSubDomains\"\n+\t\tX-Content-Type-Options \"nosniff\"\n+\t\tReferrer-Policy \"strict-origin-when-cross-origin\"\n+\t\t-Server\n+\t\t-Via\n+\t}\n+}\n+\n+# One file per project\n+import sites/*.caddy\ndiff --git a/README.md b/README.md\n@@ -2,15 +2,28 @@\n \n Shared edge proxy for all projects on the VPS: [Caddy](https://caddyserver.com/) terminates TLS and routes requests to the project stacks.\n \n-## Planned contents\n+## Contents\n \n-- Static `Caddyfile` with automatic HTTPS, admin API disabled\n-- Reusable security header snippet\n-- Docker network `edge`: project stacks join it, only Caddy publishes ports 80/443\n-- Redirects such as `backend-videoflix.` → `/api/docs/`\n+- `compose.yaml`: Caddy (pinned by digest), the only service with published ports (80, 443, 443/udp), dropped capabilities\n+- `Caddyfile`: automatic HTTPS, admin API off, shared `security_headers` snippet, imports `sites/*.caddy`\n+- `sites/videoflix.caddy`: `/api/`, `/admin/`, `/static/`, API docs → `videoflix-web:8000` (body limit 55 MB), everything else → `videoflix-frontend:8080`\n+- Docker network `edge`: project stacks join it as an external network and are reached by their network alias\n \n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/vps-edge",
+    "sha": "781ee71d0ea8d391a66c85ef43b6ca1d61e2a6c0",
+    "title": "docs: add README with repository purpose",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-10-31T17:45:34+00:00",
+    "files": [
+      "README.md"
+    ],
+    "patch": "diff --git a/README.md b/README.md\n@@ -0,0 +1,16 @@\n+# vps-edge\n+\n+Shared edge proxy for all projects on the VPS: [Caddy](https://caddyserver.com/) terminates TLS and routes requests to the project stacks.\n+\n+## Planned contents\n+\n+- Static `Caddyfile` with automatic HTTPS, admin API disabled\n+- Reusable security header snippet\n+- Docker network `edge`: project stacks join it, only Caddy publishes ports 80/443\n+- Redirects such as `backend-videoflix.` → `/api/docs/`\n+\n+Project stacks (e.g. [videoflix-deploy](https://github.com/PhilippKlinger/videoflix-deploy)) stay independent and replaceable; they never publish ports themselves.\n+\n+## Status\n+\n+Repository set up, contents follow.",
+    "body": ""
+  }
+]

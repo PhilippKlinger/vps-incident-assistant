@@ -1,0 +1,270 @@
+[
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "8a38bd0c71f788dbc4c12d2f8a807e8017a6ec3a",
+    "title": "docs: add troubleshooting runbook sorted by monitor symptom",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-10T15:08:30+00:00",
+    "files": [
+      "README.md"
+    ],
+    "patch": "diff --git a/README.md b/README.md\n@@ -105,3 +105,77 @@ docker compose run --rm -T --no-deps web tar -xf - -C /app/media < /srv/backups/\n docker compose up -d\n docker compose ps                                # web healthy\n ```\n+\n+## Troubleshooting\n+\n+Sorted by what the monitors report (Videoflix · Web-App, Videoflix · API). Commands run in `/srv/videoflix`. Proxy and certificate problems are in the runbook of [vps-edge](https://github.com/PhilippKlinger/vps-edge#troubleshooting).\n+\n+### Deploy rolled back\n+\n+**Symptom:** a short outage during a deploy, the Deploy run is red.\n+\n+**Check:** the run summary in Actions → Deploy shows the failed step (pull, start, smoke test) and whether the check after the rollback passed.\n+\n+**Fix:** if the rollback check passed, the server needs nothing; fix the image in the application repository, the next published image deploys again. If it failed, continue with [Regression after deploy](#regression-after-deploy).\n+\n+**Way back:** none needed, the previous images are running.\n+\n+### Regression after deploy\n+\n+**Symptom:** errors shortly after a green deploy (API errors, broken pages).\n+\n+**Check:** `docker compose ps`, `docker compose logs --since 30m web worker frontend`; compare `docker compose images` and `/version.json` with the deploy summary.\n+\n+**Fix:** [roll back by hand](#deploy-and-rollback) to the previous digest, one service at a time; mind the limits of a rollback (migrations are not reverted).\n+\n+**Way back:** deploy the fixed image once it is published.\n+\n+### Database or cache not ok\n+\n+**Symptom:** `/api/health/` reports database or cache not ok, the API monitor is down while the web app may still load.\n+\n+**Check:** `docker compose ps db redis`, `docker compose logs --tail 50 db redis`, `df -h /var/lib/docker` for a full disk.\n+\n+**Fix:** `docker compose up -d db redis`, then `docker compose restart web`. Disk full → remove old images (`docker image prune`) or old backups; never delete a volume.\n+\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "790921bfad3cdf13ef4a3d61319b1bc619bdc982",
+    "title": "docs: explain how pin pull requests get their required checks",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-10T12:48:27+00:00",
+    "files": [
+      "README.md"
+    ],
+    "patch": "diff --git a/README.md b/README.md\n@@ -57,6 +57,8 @@ All services log to journald instead of `json-file`, because `json-file` can onl\n 4. On failure the previous images and commit are restored and checked again; the run stays red\n 5. On success a pull request pins the digest in `compose.yaml`; merging it records the state and does not deploy again\n \n+**Pin pull requests and required checks:** `main` requires the CI checks, but a pull request opened with the `GITHUB_TOKEN` starts no workflows (GitHub prevents loops). Close and reopen the pin pull request once; the reopen starts the checks, then merge.\n+\n Secrets of the Environment: `SSH_HOST`, `SSH_PORT`, `SSH_USER`, `SSH_PRIVATE_KEY`, `SSH_KNOWN_HOSTS`. The server keeps its own `.env`.\n \n **Roll back by hand:** Actions → Deploy → Run workflow, choose the service and enter an earlier digest (the deploy summaries and the history of `compose.yaml` list them). Run this for one service at a time.",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "d5fca28f79256de11a81ad86239a12dafad772a7",
+    "title": "ci: accept the gosu finding in the Postgres image with expiry",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-10T10:24:31+00:00",
+    "files": [
+      ".github/workflows/ci.yml",
+      ".trivyignore.yaml"
+    ],
+    "patch": "diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\n@@ -156,14 +156,17 @@ jobs:\n \n       # Official Trivy image pinned by digest instead of a third-party action.\n       # Reports HIGH and CRITICAL, fails on critical findings that already have a fix.\n+      # Accepted risks with reason and expiry date: .trivyignore.yaml\n       - name: Scan images with Trivy\n         run: |\n           set -Eeuo pipefail\n           failed=0\n           for image in $(docker compose config --images | sort -u); do\n             echo \"::group::${image}\"\n             docker run --rm \"${TRIVY_IMAGE}\" image --no-progress --severity HIGH,CRITICAL --ignore-unfixed \"${image}\"\n-            docker run --rm \"${TRIVY_IMAGE}\" image --no-progress --quiet --severity CRITICAL --ignore-unfixed --exit-code 1 \"${image}\" || failed=1\n+            docker run --rm -v \"${PWD}/.trivyignore.yaml:/trivyignore.yaml:ro\" \"${TRIVY_IMAGE}\" \\\n+              image --no-progress --quiet --severity CRITICAL --ignore-unfixed \\\n+              --ignorefile /trivyignore.yaml --exit-code 1 \"${image}\" || failed=1\n             echo \"::endgroup::\"\n           done\n           exit \"${failed}\"\ndiff --git a/.trivyignore.yaml b/.trivyignore.yaml\n@@ -0,0 +1,11 @@\n+# Accepted risks for the pinned images, reviewed 2026-11-10.\n+# Each entry expires: after that date the CI fails again and the finding has to be reviewed anew.\n+# Remove an entry as soon as an image update ships the fix (Dependabot pull request).\n+vulnerabilities:\n+  - id: CVE-2025-68121\n+    paths:\n+      - usr/local/bin/gosu\n+    statement: >-\n+      Go stdlib (crypto/tls session resumption) in gosu of the official Postgres image. gosu only drops\n+      privileges once at container start and opens no network or TLS connection.\n+    expired_at: 2026-12-10",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "47b2b94326c4aac94c1353050a311b8ad5106d82",
+    "title": "ci: document why the pin job keeps its checkout token",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-10T10:24:31+00:00",
+    "files": [
+      ".github/workflows/deploy.yml"
+    ],
+    "patch": "diff --git a/.github/workflows/deploy.yml b/.github/workflows/deploy.yml\n@@ -147,8 +147,9 @@ jobs:\n       contents: write\n       pull-requests: write\n     steps:\n+      # Keeps the token on purpose: this job pushes the pin branch and uploads no artifacts.\n       - name: Check out main\n-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 # zizmor: ignore[artipacked]\n         with:\n           ref: main\n ",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "0e7152b457729ae9cede89a9936092c8c78443d6",
+    "title": "fix(deps): update Postgres 18.6 image for the critical brotli fix",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-10T10:24:31+00:00",
+    "files": [
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/compose.yaml b/compose.yaml\n@@ -21,7 +21,7 @@ x-backend: &backend\n \n services:\n   db:\n-    image: postgres:18.6-alpine@sha256:10a5c69a83035ab5239f5620d708520e8b28f5aa1f2b20143e6024532edadfb5\n+    image: postgres:18.6-alpine@sha256:123b17998ccaf47e53b502e8c6a1e79afd8f579c6f3eec83c563da026f957395\n     environment:\n       POSTGRES_DB: ${DB_NAME:?Set DB_NAME in .env}\n       POSTGRES_USER: ${DB_USER:?Set DB_USER in .env}",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "b6f9becb97aabe566b045543e0605b582e401b12",
+    "title": "docs: add badges and describe the checks",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-10T10:05:24+00:00",
+    "files": [
+      "README.md"
+    ],
+    "patch": "diff --git a/README.md b/README.md\n@@ -1,5 +1,10 @@\n # videoflix-deploy\n \n+[![CI](https://github.com/PhilippKlinger/videoflix-deploy/actions/workflows/ci.yml/badge.svg)](https://github.com/PhilippKlinger/videoflix-deploy/actions/workflows/ci.yml)\n+[![Security Checks](https://github.com/PhilippKlinger/videoflix-deploy/actions/workflows/security.yml/badge.svg)](https://github.com/PhilippKlinger/videoflix-deploy/actions/workflows/security.yml)\n+[![CodeQL](https://github.com/PhilippKlinger/videoflix-deploy/actions/workflows/codeql.yml/badge.svg)](https://github.com/PhilippKlinger/videoflix-deploy/actions/workflows/codeql.yml)\n+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/PhilippKlinger/videoflix-deploy/badge)](https://scorecard.dev/viewer/?uri=github.com/PhilippKlinger/videoflix-deploy)\n+\n Deployment configuration for [Videoflix](https://github.com/PhilippKlinger/videoflix-backend): the single place that defines which image versions run in production.\n \n The application repositories ([backend](https://github.com/PhilippKlinger/videoflix-backend), [frontend](https://github.com/PhilippKlinger/videoflix-frontend)) only build and push images to GHCR. This repository pins those images by digest and rolls them out to the VPS, so one commit equals one running combination.\n@@ -11,6 +16,8 @@ The application repositories ([backend](https://github.com/PhilippKlinger/videof\n - `.env.example`: every variable with purpose and whether it is required\n - `.github/workflows/deploy.yml`, `scripts/`: deploy with smoke test and automatic rollback\n - `backup/`: backup and restore test scripts, systemd service and timer\n+- `.github/workflows/ci.yml`: on every pull request: compose validation with the complete `.env.example`, shellcheck, actionlint, a real start of the pinned stack (health, app shell, no published ports, separated networks, non-root containers) and a Trivy scan of every pinned image\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "17f4316e262a34660f989a367885ceb070a455f6",
+    "title": "ci: validate, start and scan the pinned production stack",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-10T10:05:24+00:00",
+    "files": [
+      ".github/workflows/ci.yml",
+      ".github/workflows/codeql.yml",
+      ".github/workflows/scorecard.yml",
+      ".github/workflows/security.yml"
+    ],
+    "patch": "diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\n@@ -0,0 +1,169 @@\n+# Actions are pinned by commit SHA; the comment shows the readable version.\n+# Checks the pinned production combination before it is merged: configuration, scripts,\n+# a real start of the stack with its security properties, and a scan of every pinned image.\n+# Deploys stay in deploy.yml; this workflow never touches the server.\n+name: CI\n+\n+on:\n+  push:\n+    branches: [main]\n+  pull_request:\n+    branches: [main]\n+  # Scheduled runs catch image vulnerabilities published after the last push.\n+  schedule:\n+    - cron: \"29 4 * * 1\"\n+  workflow_dispatch:\n+\n+permissions:\n+  contents: read\n+\n+concurrency:\n+  group: ci-${{ github.ref }}\n+  cancel-in-progress: true\n+\n+env:\n+  TRIVY_IMAGE: aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c\n+  ACTIONLINT_IMAGE: rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667\n+  SHELLCHECK_IMAGE: koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d\n+  # Host from .env.example; Django answers only hosts from ALLOWED_HOSTS\n+  APP_HOST: videoflix.philipp-klinger.com\n+\n+jobs:\n+  validate:\n+    name: Validate compose, scripts and workflows\n+    runs-on: ubuntu-latest\n+    timeout-minutes: 5\n+    steps:\n+      - name: Check out repository\n+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n+        with:\n+          persist-credentials: false\n+\n+      # The template must be complete: every required value is filled with a throwaway one.\n+      - name: Create .env from the template\n+        run: |\n+          set -Eeuo pipefail\n+          cp .env.example .env\n+          sed -i \"s|^SECRET_KEY=$|SECRET_KEY=$(openssl rand -hex 32)|; s|^DB_PASSWORD=$|DB_PASSWORD=$(openssl rand -hex 16)|\" .env\n+\n+      # On the server vps-edge creates this network; here it is a stand-in.\n… truncated",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "2eda84d77a40b83ef74e2bd8ac1104eda26afca4",
+    "title": "chore: add Dependabot version updates",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-09T06:10:49+00:00",
+    "files": [
+      ".github/dependabot.yml"
+    ],
+    "patch": "diff --git a/.github/dependabot.yml b/.github/dependabot.yml\n@@ -0,0 +1,27 @@\n+version: 2\n+updates:\n+  # Pinned action SHAs in .github/workflows\n+  - package-ecosystem: \"github-actions\"\n+    directory: \"/\"\n+    schedule:\n+      interval: \"weekly\"\n+    cooldown:\n+      default-days: 14\n+    commit-message:\n+      prefix: \"ci(deps)\"\n+\n+  # Postgres and Redis images in compose.yaml\n+  - package-ecosystem: \"docker-compose\"\n+    directory: \"/\"\n+    schedule:\n+      interval: \"weekly\"\n+    cooldown:\n+      default-days: 14\n+    commit-message:\n+      prefix: \"chore(deps)\"\n+    ignore:\n+      # Backend and frontend digests come from the pin PRs of the image CI.\n+      - dependency-name: \"ghcr.io/philippklinger/*\"\n+      # A new Postgres major needs a dump and restore; it is upgraded on purpose.\n+      - dependency-name: \"postgres\"\n+        update-types: [\"version-update:semver-major\"]",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "30b137ad647e20be7655bb1017bb6ec730eaee0c",
+    "title": "chore(deploy): pin frontend image to sha256:daf86654f0c8",
+    "author": "github-actions[bot]",
+    "committed_at": "2026-11-08T14:44:01+00:00",
+    "files": [
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/compose.yaml b/compose.yaml\n@@ -116,7 +116,7 @@ services:\n     networks: [internal]\n \n   frontend:\n-    image: ${FRONTEND_IMAGE:-ghcr.io/philippklinger/videoflix-frontend@sha256:ebab3756a6f1bf4d0f5801050b49d94c5c673bfc7ebdc19df6533a179e6a0de6}\n+    image: ${FRONTEND_IMAGE:-ghcr.io/philippklinger/videoflix-frontend@sha256:daf86654f0c87e3340cd113246ed2cdb73a8294c3cf8b27022addfa4d0da8acc}\n     cap_drop: [ALL]\n     security_opt: [\"no-new-privileges:true\"]\n     restart: unless-stopped",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "00b095c823831c799ccca638d9ee577012a86164",
+    "title": "chore(deploy): pin frontend image to sha256:ebab3756a6f1",
+    "author": "github-actions[bot]",
+    "committed_at": "2026-11-08T13:02:36+00:00",
+    "files": [
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/compose.yaml b/compose.yaml\n@@ -116,7 +116,7 @@ services:\n     networks: [internal]\n \n   frontend:\n-    image: ${FRONTEND_IMAGE:-ghcr.io/philippklinger/videoflix-frontend@sha256:e40fce4e9ddec3124ce8ff167e3300e0998443287e0516aaffb4f30a079c7cca}\n+    image: ${FRONTEND_IMAGE:-ghcr.io/philippklinger/videoflix-frontend@sha256:ebab3756a6f1bf4d0f5801050b49d94c5c673bfc7ebdc19df6533a179e6a0de6}\n     cap_drop: [ALL]\n     security_opt: [\"no-new-privileges:true\"]\n     restart: unless-stopped",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "646f484a99ce87440f2c3ce1a0bf23307d644058",
+    "title": "chore(deploy): pin backend image to sha256:346d0a94572e",
+    "author": "github-actions[bot]",
+    "committed_at": "2026-11-08T12:58:12+00:00",
+    "files": [
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/compose.yaml b/compose.yaml\n@@ -10,7 +10,7 @@ x-logging: &logging\n \n x-backend: &backend\n   # Last digest that passed the deploy workflow; the server may be ahead via compose.override.yaml until the pin PR is merged.\n-  image: ${BACKEND_IMAGE:-ghcr.io/philippklinger/videoflix-backend@sha256:60c35d17cb492e2a8bd3e663291611bbad154c71a5a7418820901b8d11e39f9e}\n+  image: ${BACKEND_IMAGE:-ghcr.io/philippklinger/videoflix-backend@sha256:346d0a94572ee913c68f3a6b528aeb79d39175beb265489ac390fdcfa72c09de}\n   env_file: [.env]\n   volumes:\n     - media:/app/media",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "94ea596bd9923257ed2de10d3555acfc865cfc7f",
+    "title": "fix: limit memory, cpu and processes of the upload services",
+    "author": "Philipp Klinger",
+    "committed_at": "2026-11-07T19:55:41+00:00",
+    "files": [
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/compose.yaml b/compose.yaml\n@@ -55,6 +55,10 @@ services:\n   web:\n     <<: *backend\n     command: [\"web\"]\n+    # The VPS is shared with other stacks: a crafted upload must not take it down\n+    mem_limit: 2g\n+    cpus: 2\n+    pids_limit: 256\n     healthcheck:\n       # Django only answers hosts from ALLOWED_HOSTS; /api/health/ is exempt from the HTTPS redirect\n       test:\n@@ -80,6 +84,10 @@ services:\n     # Exactly one worker: ffmpeg conversions run one after another\n     <<: *backend\n     command: [\"worker\"]\n+    # ffmpeg peaks here; an upload that hits the limit fails, the other stacks keep running\n+    mem_limit: 6g\n+    cpus: 3\n+    pids_limit: 256\n     depends_on:\n       web:\n         condition: service_healthy\n@@ -99,6 +107,9 @@ services:\n     # Deletes expired demo accounts and their videos every 10 minutes (login checks expiry as well)\n     <<: *backend\n     command: [\"sh\", \"-c\", \"while true; do python manage.py delete_expired_demos; sleep 600; done\"]\n+    mem_limit: 512m\n+    cpus: 0.5\n+    pids_limit: 64\n     depends_on:\n       web:\n         condition: service_healthy",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "5b24324a232b94159a5d6eeaa4bba906fea4c11e",
+    "title": "chore(deploy): pin frontend image to sha256:e40fce4e9dde",
+    "author": "github-actions[bot]",
+    "committed_at": "2026-11-07T18:01:28+00:00",
+    "files": [
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/compose.yaml b/compose.yaml\n@@ -105,7 +105,7 @@ services:\n     networks: [internal]\n \n   frontend:\n-    image: ${FRONTEND_IMAGE:-ghcr.io/philippklinger/videoflix-frontend@sha256:ae678ebb02f0d48c0a7ddf46df54c8502250296f05f790b0574fe68f0ea96bd1}\n+    image: ${FRONTEND_IMAGE:-ghcr.io/philippklinger/videoflix-frontend@sha256:e40fce4e9ddec3124ce8ff167e3300e0998443287e0516aaffb4f30a079c7cca}\n     cap_drop: [ALL]\n     security_opt: [\"no-new-privileges:true\"]\n     restart: unless-stopped",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "41e832ecd80944b9c3b6f64d48fe55a4d2ab0757",
+    "title": "chore(deploy): pin backend image to sha256:60c35d17cb49",
+    "author": "github-actions[bot]",
+    "committed_at": "2026-11-07T17:15:44+00:00",
+    "files": [
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/compose.yaml b/compose.yaml\n@@ -10,7 +10,7 @@ x-logging: &logging\n \n x-backend: &backend\n   # Last digest that passed the deploy workflow; the server may be ahead via compose.override.yaml until the pin PR is merged.\n-  image: ${BACKEND_IMAGE:-ghcr.io/philippklinger/videoflix-backend@sha256:c1f5b398c2dbeb82b5dc558ca0c4de661afaef6bb8844aedaa62efdb0a090716}\n+  image: ${BACKEND_IMAGE:-ghcr.io/philippklinger/videoflix-backend@sha256:60c35d17cb492e2a8bd3e663291611bbad154c71a5a7418820901b8d11e39f9e}\n   env_file: [.env]\n   volumes:\n     - media:/app/media",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "274d7839e56219e1611636760e34e1387273957a",
+    "title": "chore(deploy): pin frontend image to sha256:ae678ebb02f0",
+    "author": "github-actions[bot]",
+    "committed_at": "2026-11-07T15:20:17+00:00",
+    "files": [
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/compose.yaml b/compose.yaml\n@@ -105,7 +105,7 @@ services:\n     networks: [internal]\n \n   frontend:\n-    image: ${FRONTEND_IMAGE:-ghcr.io/philippklinger/videoflix-frontend@sha256:36138467a7a614ded37f932da7cb0a27445ae8d792bb05379a908027726deb41}\n+    image: ${FRONTEND_IMAGE:-ghcr.io/philippklinger/videoflix-frontend@sha256:ae678ebb02f0d48c0a7ddf46df54c8502250296f05f790b0574fe68f0ea96bd1}\n     cap_drop: [ALL]\n     security_opt: [\"no-new-privileges:true\"]\n     restart: unless-stopped",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "3784472e6ef265214d644695192fd1f4e537286f",
+    "title": "chore(deploy): pin frontend image to sha256:36138467a7a6",
+    "author": "github-actions[bot]",
+    "committed_at": "2026-11-07T13:52:22+00:00",
+    "files": [
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/compose.yaml b/compose.yaml\n@@ -105,7 +105,7 @@ services:\n     networks: [internal]\n \n   frontend:\n-    image: ${FRONTEND_IMAGE:-ghcr.io/philippklinger/videoflix-frontend@sha256:dd4c4efaf1bdf31496d03ce076065b13183d51d1668766583d9bb0d76749f453}\n+    image: ${FRONTEND_IMAGE:-ghcr.io/philippklinger/videoflix-frontend@sha256:36138467a7a614ded37f932da7cb0a27445ae8d792bb05379a908027726deb41}\n     cap_drop: [ALL]\n     security_opt: [\"no-new-privileges:true\"]\n     restart: unless-stopped",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "e4d14b833f1e5627a029e88648f10554a688264a",
+    "title": "chore(deploy): pin frontend image to sha256:dd4c4efaf1bd",
+    "author": "github-actions[bot]",
+    "committed_at": "2026-11-07T13:28:20+00:00",
+    "files": [
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/compose.yaml b/compose.yaml\n@@ -105,7 +105,7 @@ services:\n     networks: [internal]\n \n   frontend:\n-    image: ${FRONTEND_IMAGE:-ghcr.io/philippklinger/videoflix-frontend@sha256:16ec92e38f0e071ae655967471fa0b6fe81c36d56bdc62c5888c77228e8b35fc}\n+    image: ${FRONTEND_IMAGE:-ghcr.io/philippklinger/videoflix-frontend@sha256:dd4c4efaf1bdf31496d03ce076065b13183d51d1668766583d9bb0d76749f453}\n     cap_drop: [ALL]\n     security_opt: [\"no-new-privileges:true\"]\n     restart: unless-stopped",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "255fe35ca185190edf07f096d6fcc28b7b293a47",
+    "title": "chore(deploy): pin frontend image to sha256:16ec92e38f0e",
+    "author": "github-actions[bot]",
+    "committed_at": "2026-11-06T20:48:47+00:00",
+    "files": [
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/compose.yaml b/compose.yaml\n@@ -105,7 +105,7 @@ services:\n     networks: [internal]\n \n   frontend:\n-    image: ${FRONTEND_IMAGE:-ghcr.io/philippklinger/videoflix-frontend@sha256:fb74df8cfa2f9eb10ee2c8a6cc34d8dba0ebbe2ba42f1cd40261889b3ccc8319}\n+    image: ${FRONTEND_IMAGE:-ghcr.io/philippklinger/videoflix-frontend@sha256:16ec92e38f0e071ae655967471fa0b6fe81c36d56bdc62c5888c77228e8b35fc}\n     cap_drop: [ALL]\n     security_opt: [\"no-new-privileges:true\"]\n     restart: unless-stopped",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "bb6d07ac2776b0f2140ba1cd201d55689d6d871e",
+    "title": "chore(deploy): pin backend image to sha256:c1f5b398c2db",
+    "author": "github-actions[bot]",
+    "committed_at": "2026-11-06T20:35:56+00:00",
+    "files": [
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/compose.yaml b/compose.yaml\n@@ -10,7 +10,7 @@ x-logging: &logging\n \n x-backend: &backend\n   # Last digest that passed the deploy workflow; the server may be ahead via compose.override.yaml until the pin PR is merged.\n-  image: ${BACKEND_IMAGE:-ghcr.io/philippklinger/videoflix-backend@sha256:2bd3a58ca00ad1feda72c7c5fe660be26dcbe510dfb08addb526c0a5bb869232}\n+  image: ${BACKEND_IMAGE:-ghcr.io/philippklinger/videoflix-backend@sha256:c1f5b398c2dbeb82b5dc558ca0c4de661afaef6bb8844aedaa62efdb0a090716}\n   env_file: [.env]\n   volumes:\n     - media:/app/media",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "a5c60f465aae7ca2c00e888af301ef010e8e479b",
+    "title": "chore(deploy): pin frontend image to sha256:fb74df8cfa2f",
+    "author": "github-actions[bot]",
+    "committed_at": "2026-11-06T20:24:39+00:00",
+    "files": [
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/compose.yaml b/compose.yaml\n@@ -105,7 +105,7 @@ services:\n     networks: [internal]\n \n   frontend:\n-    image: ${FRONTEND_IMAGE:-ghcr.io/philippklinger/videoflix-frontend@sha256:544844216a09f948687a24842568ed96fdcb3c789235031ef7d431ad7bb9947c}\n+    image: ${FRONTEND_IMAGE:-ghcr.io/philippklinger/videoflix-frontend@sha256:fb74df8cfa2f9eb10ee2c8a6cc34d8dba0ebbe2ba42f1cd40261889b3ccc8319}\n     cap_drop: [ALL]\n     security_opt: [\"no-new-privileges:true\"]\n     restart: unless-stopped",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "9c2de7ae1219348cf9017058cad9c720b602d8f2",
+    "title": "chore(deploy): pin frontend image to sha256:544844216a09",
+    "author": "github-actions[bot]",
+    "committed_at": "2026-11-06T19:51:20+00:00",
+    "files": [
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/compose.yaml b/compose.yaml\n@@ -105,7 +105,7 @@ services:\n     networks: [internal]\n \n   frontend:\n-    image: ${FRONTEND_IMAGE:-ghcr.io/philippklinger/videoflix-frontend@sha256:559846c3f39714432cbf70d7fbe64a350ae929692da8b3bcfab48b5c85633312}\n+    image: ${FRONTEND_IMAGE:-ghcr.io/philippklinger/videoflix-frontend@sha256:544844216a09f948687a24842568ed96fdcb3c789235031ef7d431ad7bb9947c}\n     cap_drop: [ALL]\n     security_opt: [\"no-new-privileges:true\"]\n     restart: unless-stopped",
+    "body": ""
+  },
+  {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "09fcc6af531459db0173f47853f1dcd32f7987c9",
+    "title": "chore(deploy): pin frontend image to sha256:559846c3f397",
+    "author": "github-actions[bot]",
+    "committed_at": "2026-11-06T19:27:00+00:00",
+    "files": [
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/compose.yaml b/compose.yaml\n@@ -105,7 +105,7 @@ services:\n     networks: [internal]\n \n   frontend:\n-    image: ${FRONTEND_IMAGE:-ghcr.io/philippklinger/videoflix-frontend@sha256:f7d7233ffe8c56013cbb8db23b3c21ec8834f17f841c6a2e6766b91ff50c77ab}\n+    image: ${FRONTEND_IMAGE:-ghcr.io/philippklinger/videoflix-frontend@sha256:559846c3f39714432cbf70d7fbe64a350ae929692da8b3bcfab48b5c85633312}\n     cap_drop: [ALL]\n     security_opt: [\"no-new-privileges:true\"]\n     restart: unless-stopped",
+    "body": ""
+  }
+]
