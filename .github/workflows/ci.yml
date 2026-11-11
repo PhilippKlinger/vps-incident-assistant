@@ -101,6 +101,123 @@ jobs:
       - name: Lint workflows (actionlint)
         run: docker run --rm -v "${PWD}:/repo" -w /repo "${ACTIONLINT_IMAGE}" -color
 
+  # Quality gate for the LLM analysis: the whole case set against the rules and both
+  # baselines, plus a short real run with the smallest candidate on a few cases.
+  evals:
+    name: Evals (fixtures, baselines, smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OLLAMA_CONTAINER: ollama-eval
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install locked dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Check fixtures and rules
+        run: python -m evals check
+
+      - name: Score the baselines
+        run: python -m evals baselines
+
+      # Model and case ids come from evals/candidates.toml, never from the workflow.
+      - name: Read smoke configuration
+        id: smoke
+        run: |
+          set -Eeuo pipefail
+          candidates="$(python -m evals candidates)"
+          model="$(python -c 'import json, sys; print(json.load(sys.stdin)["smoke_model"] or "")' <<< "${candidates}")"
+          cases="$(python -c 'import json, sys; print(",".join(json.load(sys.stdin)["smoke_cases"]))' <<< "${candidates}")"
+          if [ -z "${model}" ] || [ -z "${cases}" ]; then
+            echo "::error::evals/candidates.toml needs a smoke model and smoke_cases"
+            exit 1
+          fi
+          echo "Smoke model: ${model}"
+          echo "Smoke cases: ${cases}"
+          echo "model=${model}" >> "${GITHUB_OUTPUT}"
+          echo "cases=${cases}" >> "${GITHUB_OUTPUT}"
+
+      # Only the smoke model is cached: all candidates together exceed the 10 GB cache.
+      # PRs only restore; main saves, so a pull request cannot write cache entries.
+      - name: Restore model cache
+        id: model-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ollama-models
+          key: ollama-models-${{ steps.smoke.outputs.model }}
+
+      # Same image, limits and settings as production. The user is the runner's, so the
+      # cache step can read and write the model directory; the container needs internet
+      # for the model pull, unlike production.
+      - name: Start Ollama
+        run: |
+          set -Eeuo pipefail
+          image="$(sed -n 's/^ *image: *\(ollama\/ollama:.*\)$/\1/p' compose.yaml | sort -u)"
+          echo "Image: ${image}"
+          test -n "${image}"
+          test "$(wc -l <<< "${image}")" = "1"
+          mkdir -p ollama-models/home
+          docker run -d --name "${OLLAMA_CONTAINER}" \
+            --cpus 2 --memory 8g \
+            --user "$(id -u):$(id -g)" \
+            --publish 127.0.0.1:11434:11434 \
+            --volume "${PWD}/ollama-models:/models" \
+            --env HOME=/models/home \
+            --env OLLAMA_MODELS=/models \
+            --env OLLAMA_NO_CLOUD=true \
+            --env OLLAMA_HOST=0.0.0.0:11434 \
+            --env OLLAMA_KEEP_ALIVE=5m \
+            --env OLLAMA_NUM_PARALLEL=1 \
+            --env OLLAMA_MAX_LOADED_MODELS=1 \
+            --env OLLAMA_CONTEXT_LENGTH=16384 \
+            "${image}"
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:11434/api/version; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Ollama did not answer after 60 seconds"
+          exit 1
+
+      - name: Pull smoke model
+        env:
+          MODEL: ${{ steps.smoke.outputs.model }}
+        run: docker exec "${OLLAMA_CONTAINER}" ollama pull "${MODEL}"
+
+      - name: Save model cache
+        if: github.event_name == 'push' && steps.model-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ollama-models
+          key: ollama-models-${{ steps.smoke.outputs.model }}
+
+      - name: Run smoke cases
+        env:
+          MODEL: ${{ steps.smoke.outputs.model }}
+          CASES: ${{ steps.smoke.outputs.cases }}
+        run: |
+          set -Eeuo pipefail
+          python -m evals run --model "${MODEL}" --only "${CASES}"             --container "${OLLAMA_CONTAINER}" --out smoke.json
+
+      - name: Show Ollama logs on failure
+        if: failure()
+        run: docker logs "${OLLAMA_CONTAINER}"
+
+      - name: Stop Ollama
+        if: always()
+        run: docker rm --force "${OLLAMA_CONTAINER}"
+
   stack:
     name: Start stack and check security properties
     needs: compose
