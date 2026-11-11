@@ -8,6 +8,9 @@ import pytest
 from assistant.config import Project
 from assistant.context import IncidentContext
 from assistant.llm import (
+    FILE_NAME_MAX,
+    FILES_BUDGET,
+    FILES_IN_PROMPT,
     AnalysisRejected,
     OllamaClient,
     RateLimiter,
@@ -202,6 +205,37 @@ def test_build_messages_lists_changed_files():
 
     none = ctx.changes[0].model_copy(update={"files": ()})
     assert "Files: none" in build_messages(replace(ctx, changes=(none,)), "abc")[1]["content"]
+
+
+def test_long_file_name_keeps_its_tail():
+    ctx = _ctx()
+    name = "d/" * 200 + "main.py"
+    change = ctx.changes[0].model_copy(update={"files": (name,)})
+    user = build_messages(replace(ctx, changes=(change,)), "abc")[1]["content"]
+    assert f"Files: ...{name[-(FILE_NAME_MAX - 3) :]}\n" in user
+    assert name not in user
+
+
+def test_file_lines_share_a_budget():
+    ctx = _ctx()
+    names = tuple(f"src/{i:02d}/" + "x" * 90 for i in range(FILES_IN_PROMPT))
+    change = ctx.changes[0].model_copy(update={"files": names})
+    many = tuple(change.model_copy(update={"id": f"C{n}"}) for n in range(1, 11))
+    user = build_messages(replace(ctx, changes=many), "abc")[1]["content"]
+    assert "Files: src/00/" in user
+    assert f"Files: {FILES_IN_PROMPT} files (list omitted)" in user
+    assert user.count("(list omitted)") > 0
+
+
+def test_worst_case_prompt_stays_bounded():
+    ctx = _ctx()
+    names = tuple(f"{n}/" + "d" * 300 for n in range(FILES_IN_PROMPT + 5))
+    change = ctx.changes[0].model_copy(update={"files": names})
+    many = tuple(change.model_copy(update={"id": f"C{n}"}) for n in range(1, 51))
+    user = build_messages(replace(ctx, changes=many), "abc")[1]["content"]
+    files_chars = sum(len(line) for line in user.splitlines() if line.startswith("Files: "))
+    assert files_chars <= FILES_BUDGET + 50 * 60
+    assert len(user) < 12_000
 
 
 def test_untrusted_text_cannot_close_block():
