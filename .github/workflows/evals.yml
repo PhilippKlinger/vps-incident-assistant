@@ -1,0 +1,171 @@
+# Manual full eval run: all cases against every candidate model from evals/candidates.toml,
+# Ollama limited to 2 CPUs and 8 GB like in production. The report is an artifact; the
+# controller commits it to the repository. Actions are pinned by commit SHA.
+name: Evals
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    name: Read candidates
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      models: ${{ steps.candidates.outputs.models }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install locked dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: List candidate models
+        id: candidates
+        run: |
+          set -Eeuo pipefail
+          models="$(python -m evals candidates | python -c 'import json, sys; print(json.dumps([c["model"] for c in json.load(sys.stdin)["matrix"]]))')"
+          echo "Models: ${models}"
+          echo "models=${models}" >> "${GITHUB_OUTPUT}"
+
+  run:
+    name: Run ${{ matrix.model }}
+    needs: matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        model: ${{ fromJSON(needs.matrix.outputs.models) }}
+    env:
+      OLLAMA_CONTAINER: ollama-eval
+      MODEL: ${{ matrix.model }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install locked dependencies
+        run: pip install -r requirements-dev.txt
+
+      # Same image, limits and settings as production; the container needs internet for
+      # the model pull, unlike production. No cache: the models together exceed it.
+      - name: Start Ollama
+        run: |
+          set -Eeuo pipefail
+          image="$(sed -n 's/^ *image: *\(ollama\/ollama:.*\)$/\1/p' compose.yaml | sort -u)"
+          echo "Image: ${image}"
+          test -n "${image}"
+          test "$(wc -l <<< "${image}")" = "1"
+          mkdir -p ollama-models/home
+          docker run -d --name "${OLLAMA_CONTAINER}" \
+            --cpus 2 --memory 8g \
+            --user "$(id -u):$(id -g)" \
+            --publish 127.0.0.1:11434:11434 \
+            --volume "${PWD}/ollama-models:/models" \
+            --env HOME=/models/home \
+            --env OLLAMA_MODELS=/models \
+            --env OLLAMA_NO_CLOUD=true \
+            --env OLLAMA_HOST=0.0.0.0:11434 \
+            --env OLLAMA_KEEP_ALIVE=5m \
+            --env OLLAMA_NUM_PARALLEL=1 \
+            --env OLLAMA_MAX_LOADED_MODELS=1 \
+            --env OLLAMA_CONTEXT_LENGTH=16384 \
+            "${image}"
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:11434/api/version; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Ollama did not answer after 60 seconds"
+          exit 1
+
+      - name: Pull model
+        run: docker exec "${OLLAMA_CONTAINER}" ollama pull "${MODEL}"
+
+      # Model tags contain ":" which artifact names do not allow.
+      - name: Run all cases
+        id: run
+        run: |
+          set -Eeuo pipefail
+          slug="${MODEL//[^A-Za-z0-9._-]/-}"
+          python -m evals run --model "${MODEL}" \
+            --container "${OLLAMA_CONTAINER}" --out "run-${slug}.json"
+          echo "slug=${slug}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload run result
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: run-${{ steps.run.outputs.slug }}
+          path: run-${{ steps.run.outputs.slug }}.json
+          if-no-files-found: error
+
+      - name: Show Ollama logs on failure
+        if: failure()
+        run: docker logs "${OLLAMA_CONTAINER}"
+
+      - name: Stop Ollama
+        if: always()
+        run: docker rm --force "${OLLAMA_CONTAINER}"
+
+  report:
+    name: Build report
+    needs: run
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install locked dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Download run results
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: run-*
+          path: runs
+          merge-multiple: true
+
+      - name: Build report
+        run: |
+          set -Eeuo pipefail
+          ls runs
+          python -m evals report --runs runs/run-*.json --out-dir eval-report
+          cat eval-report/report.md >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: eval-report
+          path: |
+            eval-report/report.json
+            eval-report/report.md
+          if-no-files-found: error
