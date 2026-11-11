@@ -34,11 +34,14 @@ services:
 
   ollama:
     image: ollama/ollama:0.40.12@sha256:20d1bbfbabe1c97ba4b16301f08a20d8484bcf77047742a3cb71c613d8e12d0b
-    # Not root: ./models belongs to UID 1000 (sudo install -d -o 1000 -g 1000 models)
-    user: "1000:1000"
+    # Not root, and not UID 1000 (the admin user on the host): ./models belongs to UID 10002
+    # (sudo install -d -o 10002 -g 10002 models)
+    user: "10002:10002"
     environment:
       HOME: /models/home
       OLLAMA_MODELS: /models
+      # Local models only: no cloud models or web search through ollama.com
+      OLLAMA_NO_CLOUD: "true"
       # Listen on the container network, otherwise only localhost inside the container
       OLLAMA_HOST: 0.0.0.0:11434
       # Shares the VPS with the other stacks: one model, one request, unloaded after 5 minutes
@@ -66,10 +69,11 @@ services:
     # One-off download of the model: docker compose --profile setup run --rm ollama-pull
     image: ollama/ollama:0.40.12@sha256:20d1bbfbabe1c97ba4b16301f08a20d8484bcf77047742a3cb71c613d8e12d0b
     profiles: [setup]
-    user: "1000:1000"
+    user: "10002:10002"
     environment:
       HOME: /models/home
       OLLAMA_MODELS: /models
+      OLLAMA_NO_CLOUD: "true"
     volumes:
       - ./models:/models
     # Starts a local server, waits until it answers, pulls the model and stops the server again

@@ -123,7 +123,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           sed -E 's/^([A-Z_]+)=$/\1=ci-dummy/' .env.example > .env
-          sudo install -d -o 1000 -g 1000 models
+          sudo install -d -o 10002 -g 10002 models
           docker network create --internal incident
           docker compose up -d assistant ollama
 
@@ -165,6 +165,17 @@ jobs:
           internal="$(docker network inspect --format '{{.Internal}}' incident_llm)"
           echo "incident_llm internal: ${internal}"
           test "${internal}" = "true"
+
+      - name: Ollama cloud features are disabled
+        run: |
+          set -Eeuo pipefail
+          id="$(docker compose ps -q ollama)"
+          test -n "${id}"
+          env_list="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${id}")"
+          if ! grep -qx 'OLLAMA_NO_CLOUD=true' <<< "${env_list}"; then
+            echo "::error::Ollama cloud features are not disabled"
+            exit 1
+          fi
 
       - name: No Docker socket mounted
         run: |
