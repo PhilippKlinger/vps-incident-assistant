@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import httpx
@@ -187,6 +188,20 @@ def test_build_messages_structure():
     assert "suspected_change: C1, none" in user
     assert "runbook: o/a#502, none" in user
     assert "evidence: F1, C1" in user
+
+
+def test_build_messages_lists_changed_files():
+    ctx = _ctx()
+    many = ctx.changes[0].model_copy(update={"files": tuple(f"f{i}.py" for i in range(12))})
+    user = build_messages(replace(ctx, changes=(many,)), "abc")[1]["content"]
+    names = ", ".join(f"f{i}.py" for i in range(10))
+    assert f"Files: {names} (+2 more)" in user
+    assert "f10.py" not in user
+    # File names are repo content, so they sit inside the untrusted block.
+    assert "=====BEGIN UNTRUSTED abc=====\nFiles: " in user
+
+    none = ctx.changes[0].model_copy(update={"files": ()})
+    assert "Files: none" in build_messages(replace(ctx, changes=(none,)), "abc")[1]["content"]
 
 
 def test_untrusted_text_cannot_close_block():
