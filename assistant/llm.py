@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = Path(__file__).parent / "prompts" / "system.md"
 ANCHOR_CHARS = 500
+FILES_IN_PROMPT = 10
 _WINDOW_SECONDS = 3600
 
 
@@ -44,6 +45,15 @@ def _untrusted(text: str, nonce: str) -> str:
     return f"=====BEGIN UNTRUSTED {nonce}=====\n{clean}\n=====END UNTRUSTED {nonce}====="
 
 
+def _files_line(files: tuple[str, ...]) -> str:
+    if not files:
+        return "Files: none"
+    line = f"Files: {', '.join(files[:FILES_IN_PROMPT])}"
+    if len(files) > FILES_IN_PROMPT:
+        line += f" (+{len(files) - FILES_IN_PROMPT} more)"
+    return line
+
+
 def build_messages(ctx: IncidentContext, nonce: str) -> list[dict]:
     system = _SYSTEM_PROMPT.read_text(encoding="utf-8")
     rule = ctx.rule
@@ -60,7 +70,7 @@ def build_messages(ctx: IncidentContext, nonce: str) -> list[dict]:
     lines += ["", "## Changes"]
     for change in ctx.changes:
         head = f"{change.id} · {change.repo} · {change.sha[:7]} · {change.merged_at.isoformat()}"
-        text = f"{change.title}\n{change.body}\n{change.diff_excerpt}"
+        text = f"{_files_line(change.files)}\n{change.title}\n{change.body}\n{change.diff_excerpt}"
         lines += [head, _untrusted(text, nonce)]
     lines += ["", "## Runbook sections"]
     for anchor in ctx.anchors:
