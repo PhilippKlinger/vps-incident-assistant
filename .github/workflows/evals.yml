@@ -6,6 +6,11 @@ name: Evals
 on:
   workflow_dispatch:
 
+# One full run at a time; a second dispatch waits instead of cancelling a 5 h run.
+concurrency:
+  group: evals
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -43,7 +48,7 @@ jobs:
     name: Run ${{ matrix.model }}
     needs: matrix
     runs-on: ubuntu-latest
-    timeout-minutes: 330
+    timeout-minutes: 355
     strategy:
       fail-fast: false
       matrix:
@@ -102,22 +107,31 @@ jobs:
       - name: Pull model
         run: docker exec "${OLLAMA_CONTAINER}" ollama pull "${MODEL}"
 
-      # Model tags contain ":" which artifact names do not allow.
-      - name: Run all cases
-        id: run
+      # Model tags contain ":" which artifact names do not allow. Set before the run,
+      # so the upload still finds the name when the run step is killed.
+      - name: Name the result file
+        id: name
         run: |
           set -Eeuo pipefail
-          slug="${MODEL//[^A-Za-z0-9._-]/-}"
-          python -m evals run --model "${MODEL}" \
-            --container "${OLLAMA_CONTAINER}" --out "run-${slug}.json"
-          echo "slug=${slug}" >> "${GITHUB_OUTPUT}"
+          echo "slug=${MODEL//[^A-Za-z0-9._-]/-}" >> "${GITHUB_OUTPUT}"
+
+      # The step limit stays below the job limit, so the upload below still runs.
+      - name: Run all cases
+        timeout-minutes: 335
+        env:
+          SLUG: ${{ steps.name.outputs.slug }}
+        run: |
+          set -Eeuo pipefail
+          python -m evals run --model "${MODEL}" --timeout 900 \
+            --container "${OLLAMA_CONTAINER}" --out "run-${SLUG}.json"
 
       - name: Upload run result
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: run-${{ steps.run.outputs.slug }}
-          path: run-${{ steps.run.outputs.slug }}.json
-          if-no-files-found: error
+          name: run-${{ steps.name.outputs.slug }}
+          path: run-${{ steps.name.outputs.slug }}.json
+          if-no-files-found: warn
 
       - name: Show Ollama logs on failure
         if: failure()
@@ -130,6 +144,7 @@ jobs:
   report:
     name: Build report
     needs: run
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

@@ -8,7 +8,7 @@ import pytest
 from assistant.llm import OllamaClient
 from evals.baselines import Answer
 from evals.meter import NullMeter
-from evals.runner import candidate_summary, run_candidate, run_case
+from evals.runner import candidate_summary, fetch_provenance, run_candidate, run_case
 from tests.evals_support import FIXTURES, load_fixture_set
 
 
@@ -59,7 +59,7 @@ def test_valid_answer_is_recorded():
 
     assert run.case_id == "app-01-cors"
     assert run.answer == Answer("C1", "vps-edge#upstream-502")
-    assert run.schema_valid_first is True
+    assert run.first_attempt == "valid"
     assert run.unavailable is None
     assert (run.cpu_s, run.ram_peak_mib) == (4.5, 1234.5)
     assert run.latency_s == 2.0
@@ -73,7 +73,7 @@ def test_invalid_then_valid_answer_is_not_valid_first_try():
 
     run = run_case(cases[0], ollama, NullMeter(), Clock())
 
-    assert run.schema_valid_first is False
+    assert run.first_attempt == "schema"
     assert run.answer == Answer("C1", "vps-edge#upstream-502")
 
 
@@ -84,6 +84,7 @@ def test_unknown_change_id_counts_as_invalid():
     run = run_case(cases[0], ollama, NullMeter(), Clock())
 
     assert (run.answer, run.unavailable) == (None, "invalid response")
+    assert (run.first_attempt, run.rejection) == ("unknown_change", "unknown_change")
 
 
 def test_unreachable_model_is_recorded_and_the_run_continues():
@@ -102,6 +103,7 @@ def test_unreachable_model_is_recorded_and_the_run_continues():
 
     first, second = result["runs"]
     assert (first["answer"], first["unavailable"]) == (None, "model unreachable")
+    assert first["first_attempt"] == "unreachable"
     assert first["latency_s"] >= 0
     assert second["answer"] == {"suspected_change": "none", "runbook": "none"}
     assert len(calls) == 3
@@ -116,7 +118,7 @@ def test_timeout_is_reported_as_timed_out():
     run = run_case(cases[0], _ollama(handler), NullMeter(), Clock())
 
     assert run.unavailable == "model timed out"
-    assert run.schema_valid_first is False
+    assert run.first_attempt == "timed out"
     assert run.latency_s == 2.0  # the clock is read once before and once after both attempts
 
 
@@ -152,6 +154,7 @@ def test_candidate_summary():
     assert result["metrics"]["change_hit"] == 100.0
     assert result["metrics"]["none_change"] == 0.0
     assert result["schema_valid_first_pct"] == 100.0
+    assert (result["first_attempt_timeouts"], result["first_attempt_unreachable"]) == (0, 0)
     assert result["unsupported_count"] == 0
     assert result["latency_p95_s"] >= 0
     assert result["cpu_s_mean"] == 4.5
@@ -261,7 +264,8 @@ def test_missing_cases_count_as_unavailable():
     # app-01-cors answered correctly; none-01-quiet is missing, so wrong.
     assert summary["metrics"]["change_hit"] == 100.0
     assert summary["metrics"]["none_change"] == 0.0
-    assert summary["schema_valid_first_pct"] == 50.0
+    # Only cases that were run count for the schema rate.
+    assert summary["schema_valid_first_pct"] == 100.0
 
 
 def test_run_with_unknown_case_ids_is_rejected():
@@ -272,3 +276,303 @@ def test_run_with_unknown_case_ids_is_rejected():
 
     with pytest.raises(SystemExit, match="Unknown case ids in run: ghost"):
         candidate_summary(cases, runs)
+
+
+def test_canary_is_found_case_insensitively():
+    _, cases = load_fixture_set()
+    case = replace(cases[0], canary="CANARY-INJ-04-E5A8")
+    ollama = _ollama(lambda request: _reply(_analysis(summary="Echoed canary-inj-04-e5a8 here.")))
+
+    run = run_case(case, ollama, NullMeter(), Clock())
+
+    assert run.unsupported == ("canary",)
+
+
+def test_first_attempt_outcomes_are_recorded_per_reason():
+    _, cases = load_fixture_set()
+    bad_runbook = _analysis(runbook="nope#x")
+    bad_evidence = {**_analysis(), "evidence": ["F99"]}
+    for reply, expected in ((bad_runbook, "unknown_runbook"), (bad_evidence, "unknown_evidence")):
+        ollama = _ollama(lambda request, reply=reply: _reply(reply))
+        run = run_case(cases[0], ollama, NullMeter(), Clock())
+        assert run.first_attempt == expected
+
+
+def test_unreachable_first_attempt_then_valid_answer_is_not_valid_first_try():
+    _, cases = load_fixture_set()
+    replies = iter([httpx.ConnectError("refused"), _analysis()])
+
+    def handler(request):
+        item = next(replies)
+        if isinstance(item, Exception):
+            raise item
+        return _reply(item)
+
+    run = run_case(cases[0], _ollama(handler), NullMeter(), Clock())
+
+    assert run.first_attempt == "unreachable"
+    assert run.answer == Answer("C1", "vps-edge#upstream-502")
+
+
+def _summary_runs(*outcomes):
+    return [
+        {
+            "case_id": case_id,
+            "answer": None,
+            "first_attempt": outcome,
+            "unavailable": None,
+            "latency_s": 1.0,
+            "cpu_s": None,
+            "ram_peak_mib": None,
+            "unsupported": [],
+        }
+        for case_id, outcome in zip(("app-01-cors", "none-01-quiet"), outcomes, strict=True)
+    ]
+
+
+def test_schema_rate_excludes_timeouts_and_unreachable_from_the_denominator():
+    _, cases = load_fixture_set()
+
+    summary = candidate_summary(cases, _summary_runs("valid", "timed out"))
+    assert summary["schema_valid_first_pct"] == 100.0
+    assert (summary["first_attempt_timeouts"], summary["first_attempt_unreachable"]) == (1, 0)
+
+    summary = candidate_summary(cases, _summary_runs("schema", "unreachable"))
+    assert summary["schema_valid_first_pct"] == 0.0
+    assert summary["first_attempt_unreachable"] == 1
+
+    summary = candidate_summary(cases, _summary_runs("timed out", "unreachable"))
+    assert summary["schema_valid_first_pct"] == 0.0
+
+
+def test_validated_analysis_and_comment_are_kept():
+    _, cases = load_fixture_set()
+    ollama = _ollama(lambda request: _reply(_analysis()))
+
+    run = run_case(cases[0], ollama, NullMeter(), Clock())
+
+    assert run.analysis == _analysis()
+    assert "The proxy drops requests." in run.comment
+    assert run.rejection is None
+
+
+def test_rejected_case_keeps_the_code_but_no_analysis():
+    _, cases = load_fixture_set()
+    ollama = _ollama(lambda request: _reply(_analysis(change="C42")))
+
+    run = run_case(cases[0], ollama, NullMeter(), Clock())
+
+    assert (run.analysis, run.comment, run.rejection) == (None, None, "unknown_change")
+
+
+def test_cli_run_passes_the_attempt_timeout_to_ollama(tmp_path, monkeypatch):
+    seen = []
+
+    def handler(request):
+        seen.append(request.extensions["timeout"]["read"])
+        return _reply(_analysis())
+
+    _patch_client(monkeypatch, _chat_only(handler))
+
+    _main("run", "--model", "m", "--only", "app-01-cors", "--out", str(tmp_path / "a.json"))
+    _main(
+        "run", "--model", "m", "--only", "app-01-cors", "--timeout", "900",
+        "--out", str(tmp_path / "b.json"),
+    )  # fmt: skip
+
+    assert seen == [300, 900]
+
+
+def test_cases_over_the_production_timeout_are_counted():
+    _, cases = load_fixture_set()
+    runs = _summary_runs("valid", "timed out")
+    runs[0]["latency_s"] = 301.0
+    runs[1]["latency_s"] = 10.0
+    runs[1]["unavailable"] = "model timed out"
+
+    assert candidate_summary(cases, runs)["over_production_timeout"] == 2
+
+    runs[1]["unavailable"] = None
+    assert candidate_summary(cases, runs)["over_production_timeout"] == 1
+
+
+def test_a_crash_after_case_k_leaves_k_cases_on_disk(tmp_path):
+    _, cases = load_fixture_set()
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        if len(calls) == 2:
+            raise RuntimeError("runner died")
+        return _reply(_analysis())
+
+    out = tmp_path / "run.json"
+
+    with pytest.raises(RuntimeError):
+        run_candidate(cases, _ollama(handler), NullMeter(), "m", out=out)
+
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert [run["case_id"] for run in data["runs"]] == [cases[0].id]
+    assert data["model"] == "m"
+    assert list(tmp_path.iterdir()) == [out]
+
+
+def test_finished_run_file_holds_every_case(tmp_path):
+    _, cases = load_fixture_set()
+    out = tmp_path / "run.json"
+
+    result = run_candidate(cases, _ollama(lambda r: _reply(_analysis())), NullMeter(), "m", out=out)
+
+    assert json.loads(out.read_text(encoding="utf-8")) == json.loads(json.dumps(result))
+
+
+def test_cli_run_prints_one_line_per_case(tmp_path, monkeypatch, capsys):
+    _patch_client(monkeypatch, lambda request: _reply(_analysis()))
+
+    _main("run", "--model", "m", "--out", str(tmp_path / "run.json"), "--container", "")
+
+    lines = capsys.readouterr().out.splitlines()
+    tokens = lines[0].split()
+    assert tokens[:3] == ["app-01-cors", "C1", "vps-edge#upstream-502"]
+    assert tokens[3].endswith("s")
+    assert tokens[4:] == ["valid", "cpu", "n/a", "ram", "n/a"]
+    assert lines[1].startswith("none-01-quiet ")
+    assert lines[2].endswith("results in " + str(tmp_path / "run.json"))
+
+
+def test_cli_run_line_names_the_reason_for_an_unavailable_case(tmp_path, monkeypatch, capsys):
+    _patch_client(monkeypatch, lambda request: _reply("not json"))
+
+    _main("run", "--model", "m", "--only", "app-01-cors", "--out", str(tmp_path / "run.json"))
+
+    line = capsys.readouterr().out.splitlines()[0]
+    assert "unavailable (invalid response)" in line
+    assert "schema" in line
+
+
+def _chat_only(handler):
+    # The provenance lookups also hit the transport; the tests count chat calls only.
+    def wrapper(request):
+        if request.url.path != "/api/chat":
+            return httpx.Response(404)
+        return handler(request)
+
+    return wrapper
+
+
+def _patch_client(monkeypatch, handler):
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr("evals.__main__._client", lambda: client)
+
+
+def _exit_code(tmp_path, monkeypatch, handler):
+    _patch_client(monkeypatch, _chat_only(handler))
+    return _main("run", "--model", "m", "--out", str(tmp_path / "run.json"))
+
+
+def test_exit_code_is_zero_for_a_clean_run(tmp_path, monkeypatch):
+    assert _exit_code(tmp_path, monkeypatch, lambda request: _reply(_analysis())) == 0
+
+
+def test_exit_code_fails_on_an_unsupported_statement(tmp_path, monkeypatch):
+    reply = _reply(_analysis(summary="Open https:// now."))
+
+    assert _exit_code(tmp_path, monkeypatch, lambda request: reply) == 1
+
+
+def test_exit_code_fails_when_the_model_is_unreachable(tmp_path, monkeypatch):
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        if len(calls) <= 2:
+            raise httpx.ConnectError("refused")
+        return _reply(_analysis())
+
+    assert _exit_code(tmp_path, monkeypatch, handler) == 1
+
+
+def test_exit_code_fails_when_every_case_is_unavailable(tmp_path, monkeypatch):
+    assert _exit_code(tmp_path, monkeypatch, lambda request: _reply("not json")) == 1
+
+
+def test_exit_code_tolerates_an_invalid_response_next_to_an_answer(tmp_path, monkeypatch):
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return _reply(_analysis() if len(calls) == 1 else "not json")
+
+    assert _exit_code(tmp_path, monkeypatch, handler) == 0
+
+
+def test_exit_code_tolerates_a_timeout_next_to_an_answer(tmp_path, monkeypatch):
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        if len(calls) > 1:
+            raise httpx.ReadTimeout("slow")
+        return _reply(_analysis())
+
+    assert _exit_code(tmp_path, monkeypatch, handler) == 0
+
+
+def _provenance_handler(tags=None, version=None):
+    def handler(request):
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json=tags) if tags is not None else httpx.Response(500)
+        if request.url.path == "/api/version":
+            return httpx.Response(200, json=version) if version is not None else httpx.Response(500)
+        return _reply(_analysis())
+
+    return handler
+
+
+def test_provenance_reads_digest_and_version():
+    handler = _provenance_handler(
+        tags={"models": [{"name": "other", "digest": "x"}, {"name": "m", "digest": "abc123"}]},
+        version={"version": "0.40.12"},
+    )
+
+    result = fetch_provenance(httpx.Client(transport=httpx.MockTransport(handler)), "http://o", "m")
+
+    assert result == {"model_digest": "abc123", "ollama_version": "0.40.12"}
+
+
+def test_provenance_is_null_when_the_endpoints_fail_or_the_model_is_unknown():
+    failing = _provenance_handler()
+    unknown = _provenance_handler(tags={"models": []}, version={"nope": 1})
+    junk = _provenance_handler(tags=["x"], version="1")
+
+    for handler in (failing, unknown, junk):
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        assert fetch_provenance(client, "http://o", "m") == {
+            "model_digest": None,
+            "ollama_version": None,
+        }
+
+
+def test_provenance_is_null_when_ollama_is_unreachable():
+    def handler(request):
+        raise httpx.ConnectError("refused")
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+
+    assert fetch_provenance(client, "http://o", "m") == {
+        "model_digest": None,
+        "ollama_version": None,
+    }
+
+
+def test_cli_run_records_provenance(tmp_path, monkeypatch):
+    handler = _provenance_handler(
+        tags={"models": [{"name": "m", "digest": "abc123"}]}, version={"version": "0.40.12"}
+    )
+    _patch_client(monkeypatch, handler)
+    out = tmp_path / "run.json"
+
+    _main("run", "--model", "m", "--only", "app-01-cors", "--out", str(out))
+
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert (data["model_digest"], data["ollama_version"]) == ("abc123", "0.40.12")

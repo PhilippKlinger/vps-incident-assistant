@@ -16,7 +16,7 @@ from evals.check import check_set
 from evals.freeze import freeze
 from evals.meter import DockerMeter, NullMeter
 from evals.report import build_report, render_markdown
-from evals.runner import run_candidate
+from evals.runner import PRODUCTION_TIMEOUT_S, describe_run, fetch_provenance, run_candidate
 from evals.scoring import rule_accuracy, score, summarize
 
 HERE = Path(__file__).parent
@@ -58,6 +58,18 @@ def _client() -> httpx.Client:
     return httpx.Client()
 
 
+def _run_problem(runs: list[dict]) -> str | None:
+    # Timeouts and invalid answers are model behaviour and show up in the report;
+    # the rest points at the harness or the setup.
+    if any(run["unsupported"] for run in runs):
+        return "unsupported statement in a published comment"
+    if any(run["unavailable"] == "model unreachable" for run in runs):
+        return "model unreachable"
+    if all(run["unavailable"] for run in runs):
+        return "no case produced an answer"
+    return None
+
+
 def _run(args: argparse.Namespace) -> int:
     if not args.model or not args.out:
         raise SystemExit("run needs --model and --out")
@@ -68,12 +80,37 @@ def _run(args: argparse.Namespace) -> int:
         if unknown:
             raise SystemExit(f"Unknown case ids: {', '.join(unknown)}")
         cases = [case for case in cases if case.id in wanted]
-    ollama = OllamaClient(_client(), args.ollama_url, args.model)
+    client = _client()
+    ollama = OllamaClient(client, args.ollama_url, args.model, args.timeout)
+    provenance = fetch_provenance(client, args.ollama_url, args.model)
     meter = DockerMeter(args.container) if args.container else NullMeter()
-    result = run_candidate(cases, ollama, meter, args.model)
-    args.out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    result = run_candidate(
+        cases,
+        ollama,
+        meter,
+        args.model,
+        out=args.out,
+        on_case=lambda r: print(describe_run(r)),
+        provenance=provenance,
+    )
     print(f"{args.model}: {len(cases)} cases, results in {args.out}")
-    return 0
+    problem = _run_problem(result["runs"])
+    if problem:
+        print(f"FAILED: {problem}", file=sys.stderr)
+    return 1 if problem else 0
+
+
+def _latency_runs(specs: list[str]) -> dict[str, dict]:
+    found = {}
+    for spec in specs:
+        model, sep, path = spec.rpartition("=")
+        if not sep or not model or not path:
+            raise SystemExit(f"--latency-run expects MODEL=FILE, got: {spec}")
+        try:
+            found[model] = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise SystemExit(f"Cannot read latency run {path}: {type(exc).__name__}") from None
+    return found
 
 
 def _report(args: argparse.Namespace) -> int:
@@ -81,7 +118,7 @@ def _report(args: argparse.Namespace) -> int:
         raise SystemExit("report needs --runs and --out-dir")
     _, cases = _load(args)
     runs = [json.loads(path.read_text(encoding="utf-8")) for path in args.runs]
-    report = build_report(cases, runs)
+    report = build_report(cases, runs, _latency_runs(args.latency_run))
     args.out_dir.mkdir(parents=True, exist_ok=True)
     (args.out_dir / "report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     (args.out_dir / "report.md").write_text(render_markdown(report), encoding="utf-8")
@@ -122,9 +159,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ollama-url", default="http://localhost:11434")
     parser.add_argument("--container")
     parser.add_argument("--only")
+    parser.add_argument("--timeout", type=float, default=PRODUCTION_TIMEOUT_S)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--runs", type=Path, nargs="+")
     parser.add_argument("--out-dir", type=Path)
+    parser.add_argument("--latency-run", action="append", default=[], metavar="MODEL=FILE")
     args = parser.parse_args(argv)
     commands = {
         "check": _check,

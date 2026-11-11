@@ -1,6 +1,6 @@
 from evals.baselines import Answer, keyword_match, latest_change
 from evals.cases import Case
-from evals.runner import candidate_summary
+from evals.runner import PRODUCTION_TIMEOUT_S, _p95, candidate_summary
 from evals.scoring import rule_accuracy, score, summarize
 from evals.thresholds import (
     CHANGE_MARGIN_PP,
@@ -17,8 +17,28 @@ EXAMPLES = 3
 NA = "n/a"
 
 
-def _check(name: str, passed: bool, detail: str) -> dict:
-    return {"name": name, "passed": passed, "detail": detail}
+def _check(name: str, passed: bool, detail: str, provisional: bool = False) -> dict:
+    return {"name": name, "passed": passed, "detail": detail, "provisional": provisional}
+
+
+def _latency_check(candidate: dict) -> dict:
+    runner = candidate["latency_p95_s"]
+    vps = candidate["vps_latency_p95_s"]
+    if vps is None:
+        # The VPS run is authoritative (spec section 12); the runner value cannot pass a model.
+        return _check(
+            "latency p95",
+            False,
+            f"latency p95 {runner:.1f} s on the GitHub runner, provisional "
+            "(the VPS run decides this check)",
+            provisional=True,
+        )
+    return _check(
+        "latency p95",
+        vps < LATENCY_P95_MAX_S,
+        f"latency p95 {vps:.1f} s on the VPS (must stay under {LATENCY_P95_MAX_S} s); "
+        f"GitHub runner {runner:.1f} s",
+    )
 
 
 def _checks(candidate: dict, best: dict) -> list[dict]:
@@ -63,14 +83,7 @@ def _checks(candidate: dict, best: dict) -> list[dict]:
             f"unsupported statements {unsupported} (allowed {UNSUPPORTED_MAX})",
         )
     )
-    latency = candidate["latency_p95_s"]
-    checks.append(
-        _check(
-            "latency p95",
-            latency < LATENCY_P95_MAX_S,
-            f"latency p95 {latency:.1f} s (must stay under {LATENCY_P95_MAX_S} s)",
-        )
-    )
+    checks.append(_latency_check(candidate))
     return checks
 
 
@@ -126,7 +139,31 @@ def _examples(cases: list[Case], best: dict | None) -> list[dict]:
     return examples
 
 
-def build_report(cases: list[Case], runs: list[dict]) -> dict:
+def _vps_p95(model: str, latency_run: dict) -> float:
+    runs = latency_run["runs"]
+    if not runs:
+        raise SystemExit(f"Latency run for {model} has no cases")
+    # A sample is enough here; quality metrics never read this file.
+    return _p95([run["latency_s"] for run in runs])
+
+
+def _verdict(passing: list[str], pending: list[str]) -> str:
+    note = f"latency check is pending the VPS run for: {', '.join(pending)}"
+    if passing:
+        text = f"Passing: {', '.join(passing)}"
+        return f"{text}; {note}" if pending else text
+    if pending:
+        return f"No candidate has passed yet; {note}. llm.enabled stays false."
+    return NO_PASS
+
+
+def build_report(
+    cases: list[Case], runs: list[dict], latency_runs: dict[str, dict] | None = None
+) -> dict:
+    latency_runs = latency_runs or {}
+    unknown = sorted(latency_runs.keys() - {run["model"] for run in runs})
+    if unknown:
+        raise SystemExit(f"Latency run given, but no candidate run for: {', '.join(unknown)}")
     baselines = {
         name: {"metrics": dict(vars(summarize([score(c, fn(c)) for c in cases], digits=None)))}
         for name, fn in BASELINES.items()
@@ -138,10 +175,20 @@ def build_report(cases: list[Case], runs: list[dict]) -> dict:
     candidates = []
     for run in runs:
         candidate = {**run, **candidate_summary(cases, run["runs"])}
+        model = run["model"]
+        candidate["vps_latency_p95_s"] = (
+            _vps_p95(model, latency_runs[model]) if model in latency_runs else None
+        )
         candidate["checks"] = _checks(candidate, best)
         candidate["passes"] = all(c["passed"] for c in candidate["checks"])
         candidates.append(candidate)
     passing = [c["model"] for c in candidates if c["passes"]]
+    pending = [
+        c["model"]
+        for c in candidates
+        if all(k["passed"] or k["provisional"] for k in c["checks"])
+        and any(k["provisional"] for k in c["checks"])
+    ]
     leader = max(
         candidates,
         key=lambda c: c["metrics"]["change_hit"] + c["metrics"]["runbook_hit"],
@@ -152,11 +199,17 @@ def build_report(cases: list[Case], runs: list[dict]) -> dict:
         "baselines": baselines,
         "candidates": candidates,
         "passing": passing,
-        "verdict": f"Passing: {', '.join(passing)}" if passing else NO_PASS,
+        "verdict": _verdict(passing, pending),
         "rule_accuracy": rule_accuracy(cases),
         "best_candidate": leader["model"] if leader else None,
         "examples": _examples(cases, leader),
     }
+
+
+def _status(check: dict) -> str:
+    if check["provisional"]:
+        return "PENDING"
+    return "PASS" if check["passed"] else "FAIL"
 
 
 def _pct(value: float) -> str:
@@ -186,9 +239,27 @@ def _table(report: dict) -> list[str]:
         cells += [_pct(c["metrics"][key]) for c in report["candidates"]]
         lines.append(f"| {label} | " + " | ".join(cells) + " |")
     lines += [
+        _row("Model digest", None, lambda c: c.get("model_digest") or NA, report),
+        _row("Ollama version", None, lambda c: c.get("ollama_version") or NA, report),
         _row("Valid schema first try", None, lambda c: _pct(c["schema_valid_first_pct"]), report),
+        _row("First-attempt timeouts", None, lambda c: str(c["first_attempt_timeouts"]), report),
+        _row(
+            "First-attempt unreachable", None, lambda c: str(c["first_attempt_unreachable"]), report
+        ),
+        _row(
+            f"Cases over the production timeout ({PRODUCTION_TIMEOUT_S} s)",
+            None,
+            lambda c: str(c["over_production_timeout"]),
+            report,
+        ),
         _row("Unsupported statements", None, lambda c: str(c["unsupported_count"]), report),
-        _row("Latency p95", None, lambda c: _optional(c["latency_p95_s"], "s"), report),
+        _row(
+            "Latency p95 (GitHub runner)",
+            None,
+            lambda c: _optional(c["latency_p95_s"], "s"),
+            report,
+        ),
+        _row("Latency p95 (VPS)", None, lambda c: _optional(c["vps_latency_p95_s"], "s"), report),
         _row("Mean CPU", None, lambda c: _optional(c["cpu_s_mean"], "s"), report),
         _row("Max RAM", None, lambda c: _optional(c["ram_peak_mib_max"], "MiB"), report),
     ]
@@ -206,15 +277,16 @@ def render_markdown(report: dict) -> str:
         "",
         *_table(report),
         "",
+        "Valid schema first try = valid / first attempts that returned a response; "
+        "timeouts and unreachable are excluded and counted separately.",
+        "",
         "CPU and RAM are measured per case and have no threshold.",
         "",
         "## Thresholds",
     ]
     for candidate in report["candidates"]:
         lines += ["", f"### {candidate['model']}", ""]
-        lines += [
-            f"- {'PASS' if c['passed'] else 'FAIL'}: {c['detail']}" for c in candidate["checks"]
-        ]
+        lines += [f"- {_status(c)}: {c['detail']}" for c in candidate["checks"]]
     lines += ["", "## Rule engine", "", f"Rule accuracy: {_pct(report['rule_accuracy'])}"]
     if report["examples"]:
         lines += [
