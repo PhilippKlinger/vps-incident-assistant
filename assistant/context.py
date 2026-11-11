@@ -11,6 +11,10 @@ from assistant.runbook import parse_runbook
 
 LOOKBACK = timedelta(hours=72)
 EXCERPT_CHARS = 2000
+# Commit messages can embed whole release notes (Dependabot), so they are capped too.
+TITLE_CHARS = 200
+BODY_CHARS = 500
+# Shared by titles, bodies and diff excerpts of all changes.
 DIFF_BUDGET = 12000
 FACT_CHARS = 300
 # Length of the marker truncate_patch appends; below this an excerpt is dropped entirely.
@@ -46,25 +50,38 @@ def _facts(event: KumaEvent, probe: ProbeResult | None, extra: list[str]) -> tup
     return tuple(Fact(id=f"F{n}", source=src, text=_clean(t)) for n, (src, t) in enumerate(rows, 1))
 
 
+def _fit(text: str, max_chars: int, remaining: int) -> str:
+    text = truncate_patch(text, max_chars)
+    if len(text) > remaining:
+        text = truncate_patch(text, remaining) if remaining >= _MIN_EXCERPT else ""
+    return text
+
+
 def _changes(raw: list[RawChange]) -> tuple[Change, ...]:
-    changes = []
+    ordered = sorted(raw, key=lambda r: r.merged_at, reverse=True)
     remaining = DIFF_BUDGET
-    for number, item in enumerate(sorted(raw, key=lambda r: r.merged_at, reverse=True), 1):
-        excerpt = truncate_patch(item.patch, EXCERPT_CHARS)
-        if len(excerpt) > remaining:
-            excerpt = truncate_patch(excerpt, remaining) if remaining >= _MIN_EXCERPT else ""
+    # Titles first: every change keeps its title in the issue list, even with the budget spent.
+    titles = []
+    for item in ordered:
+        titles.append(_fit(item.title, TITLE_CHARS, remaining))
+        remaining -= len(titles[-1])
+    changes = []
+    for number, (item, title) in enumerate(zip(ordered, titles, strict=True), 1):
+        body = _fit(item.body, BODY_CHARS, remaining)
+        remaining -= len(body)
+        excerpt = _fit(item.patch, EXCERPT_CHARS, remaining)
         remaining -= len(excerpt)
         changes.append(
             Change(
                 id=f"C{number}",
                 repo=item.repo,
                 sha=item.sha,
-                title=item.title,
+                title=title,
                 author=item.author,
                 merged_at=item.merged_at,
                 files=item.files,
                 diff_excerpt=excerpt,
-                body=item.body,
+                body=body,
             )
         )
     return tuple(changes)
