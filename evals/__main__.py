@@ -1,11 +1,14 @@
 import argparse
+import os
 import sys
 from pathlib import Path
 
 from assistant.config import load_config
+from assistant.github_read import GitHubReader, GitHubUnavailable, make_client
 from evals.baselines import keyword_match, latest_change
 from evals.cases import Case, HistoryStore, load_cases
 from evals.check import check_set
+from evals.freeze import freeze
 from evals.scoring import rule_accuracy, score, summarize
 
 HERE = Path(__file__).parent
@@ -43,14 +46,27 @@ def _baselines(args: argparse.Namespace) -> int:
     return 0
 
 
+def _freeze(args: argparse.Namespace) -> int:
+    token = os.environ.get("GITHUB_TOKEN")
+    if not token:
+        raise SystemExit("GITHUB_TOKEN is required to freeze eval data")
+    project = load_config(args.config).project_for("Videoflix · Web-App")
+    try:
+        freeze(GitHubReader(make_client(token)), project.repos, project.runbook_repos, args.data)
+    except GitHubUnavailable as exc:
+        raise SystemExit(f"Freeze failed: {exc}") from None
+    print(f"Frozen {len(project.repos)} repos into {args.data}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m evals")
-    parser.add_argument("command", choices=["check", "baselines"])
+    parser.add_argument("command", choices=["check", "baselines", "freeze"])
     parser.add_argument("--cases", type=Path, default=HERE / "cases")
     parser.add_argument("--data", type=Path, default=HERE)
     parser.add_argument("--config", type=Path, default=HERE.parent / "config.toml")
     args = parser.parse_args(argv)
-    return {"check": _check, "baselines": _baselines}[args.command](args)
+    return {"check": _check, "baselines": _baselines, "freeze": _freeze}[args.command](args)
 
 
 if __name__ == "__main__":
