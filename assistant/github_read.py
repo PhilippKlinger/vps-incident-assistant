@@ -86,7 +86,9 @@ class GitHubReader:
             f"/repos/{repo}/commits",
             params={"sha": "main", "since": since.isoformat(), "per_page": limit},
         ).json()
-        dated = [(_parse_time(c["commit"]["committer"]["date"]), c) for c in listing]
+        # Merge commits repeat the commits of the PR they merge.
+        singles = [c for c in listing if len(c.get("parents", [])) <= 1]
+        dated = [(_parse_time(c["commit"]["committer"]["date"]), c) for c in singles]
         recent = sorted((d for d in dated if d[0] >= since), key=lambda d: d[0], reverse=True)
         return [self._change(repo, when, item) for when, item in recent[:limit]]
 

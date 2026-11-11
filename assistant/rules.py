@@ -81,6 +81,6 @@ def classify(event: KumaEvent, probe: ProbeResult | None) -> RuleResult:
         return RuleResult(
             Category.health_degraded,
             Severity.high,
-            "The health check returned HTTP 200 but reported a degraded state.",
+            "The endpoint returned HTTP 200 but Kuma reports it down.",
         )
     return RuleResult(Category.unknown, Severity.high, "The probe found no clear cause.")

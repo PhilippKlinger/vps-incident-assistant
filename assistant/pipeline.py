@@ -45,6 +45,11 @@ INTERNAL_REASON = "internal error"
 _ISSUE_LOCK = threading.Lock()
 
 
+# Ollama runs one request at a time; without this lock a second analysis waits in
+# Ollama's queue and both time out.
+_ANALYSIS_LOCK = threading.Lock()
+
+
 @dataclass
 class Deps:
     config: Config
@@ -65,7 +70,7 @@ def _safe_probe(event: KumaEvent, deps: Deps) -> ProbeResult | None:
     try:
         return deps.probe(event.url)
     except Exception as error:
-        log.warning("probe failed: %s", type(error).__name__)
+        log.exception("probe failed: %s", type(error).__name__)
         return None
 
 
@@ -162,7 +167,8 @@ def _comment_analysis(job: _FollowUp, deps: Deps) -> Analysis | None:
             reason = LIMIT_REASON
             deps.issues.comment(job.number, unavailable_comment(reason))
         elif job.run_llm:
-            result = analyze(job.ctx, deps.ollama)
+            with _ANALYSIS_LOCK:
+                result = analyze(job.ctx, deps.ollama)
             if isinstance(result, Unavailable):
                 reason = result.reason
                 deps.issues.comment(job.number, unavailable_comment(reason))

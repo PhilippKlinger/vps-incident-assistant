@@ -70,6 +70,7 @@ def test_classify_health_degraded():
     event = _event(url="https://videoflix.example/api/health/")
     result = classify(event, _probe(status=200))
     assert (result.category, result.severity) == (Category.health_degraded, Severity.high)
+    assert result.reason == "The endpoint returned HTTP 200 but Kuma reports it down."
     up = _event(url="https://videoflix.example/api/health/", status="up")
     assert classify(up, _probe(status=200)).category == Category.unknown
 
