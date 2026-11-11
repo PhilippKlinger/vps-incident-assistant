@@ -15,6 +15,7 @@ from assistant.pipeline import (
     _build_context,
     _follow_up,
     _FollowUp,
+    _safe_probe,
     handle_event,
     run_event,
 )
@@ -363,6 +364,19 @@ def test_probe_error_still_creates_issue(caplog):
     assert "- F1: Kuma:" in body and "- F2:" not in body
     assert len(s.telegram) == 1
     assert "UnicodeError" in caplog.text
+
+
+def test_probe_crash_is_logged_with_traceback(caplog):
+    s = Setup(llm=False)
+
+    def boom(url):
+        raise RuntimeError("boom")
+
+    s.deps.probe = boom
+    assert _safe_probe(_event(), s.deps) is None
+    record = next(r for r in caplog.records if "probe failed" in r.getMessage())
+    assert record.levelname == "ERROR"
+    assert record.exc_info is not None
 
 
 def test_analyses_run_one_at_a_time():

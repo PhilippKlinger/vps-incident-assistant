@@ -70,7 +70,7 @@ def _safe_probe(event: KumaEvent, deps: Deps) -> ProbeResult | None:
     try:
         return deps.probe(event.url)
     except Exception as error:
-        log.warning("probe failed: %s", type(error).__name__)
+        log.exception("probe failed: %s", type(error).__name__)
         return None
 
 
