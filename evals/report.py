@@ -1,6 +1,6 @@
 from evals.baselines import Answer, keyword_match, latest_change
 from evals.cases import Case
-from evals.runner import candidate_summary
+from evals.runner import PRODUCTION_TIMEOUT_S, candidate_summary
 from evals.scoring import rule_accuracy, score, summarize
 from evals.thresholds import (
     CHANGE_MARGIN_PP,
@@ -190,6 +190,12 @@ def _table(report: dict) -> list[str]:
         _row("First-attempt timeouts", None, lambda c: str(c["first_attempt_timeouts"]), report),
         _row(
             "First-attempt unreachable", None, lambda c: str(c["first_attempt_unreachable"]), report
+        ),
+        _row(
+            f"Cases over the production timeout ({PRODUCTION_TIMEOUT_S} s)",
+            None,
+            lambda c: str(c["over_production_timeout"]),
+            report,
         ),
         _row("Unsupported statements", None, lambda c: str(c["unsupported_count"]), report),
         _row("Latency p95", None, lambda c: _optional(c["latency_p95_s"], "s"), report),

@@ -16,7 +16,7 @@ from evals.check import check_set
 from evals.freeze import freeze
 from evals.meter import DockerMeter, NullMeter
 from evals.report import build_report, render_markdown
-from evals.runner import run_candidate
+from evals.runner import PRODUCTION_TIMEOUT_S, run_candidate
 from evals.scoring import rule_accuracy, score, summarize
 
 HERE = Path(__file__).parent
@@ -68,7 +68,7 @@ def _run(args: argparse.Namespace) -> int:
         if unknown:
             raise SystemExit(f"Unknown case ids: {', '.join(unknown)}")
         cases = [case for case in cases if case.id in wanted]
-    ollama = OllamaClient(_client(), args.ollama_url, args.model)
+    ollama = OllamaClient(_client(), args.ollama_url, args.model, args.timeout)
     meter = DockerMeter(args.container) if args.container else NullMeter()
     result = run_candidate(cases, ollama, meter, args.model)
     args.out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
@@ -122,6 +122,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ollama-url", default="http://localhost:11434")
     parser.add_argument("--container")
     parser.add_argument("--only")
+    parser.add_argument("--timeout", type=float, default=PRODUCTION_TIMEOUT_S)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--runs", type=Path, nargs="+")
     parser.add_argument("--out-dir", type=Path)

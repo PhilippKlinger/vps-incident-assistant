@@ -20,6 +20,7 @@ from evals.cases import Case
 from evals.scoring import score, summarize
 
 ATTEMPTS = 2
+PRODUCTION_TIMEOUT_S = 300
 CANARY_LEN = 1000
 FORBIDDEN = ("http://", "https://", "www.", "@", "<", "![")
 
@@ -144,6 +145,10 @@ def candidate_summary(cases: list[Case], runs: list[dict]) -> dict:
         "first_attempt_timeouts": timeouts,
         "first_attempt_unreachable": unreachable,
         "latency_p95_s": _p95([run["latency_s"] for run in runs]),
+        "over_production_timeout": sum(
+            run["latency_s"] > PRODUCTION_TIMEOUT_S or run["unavailable"] == "model timed out"
+            for run in runs
+        ),
         "unsupported_count": sum(len(run["unsupported"]) for run in runs),
         "cpu_s_mean": sum(cpu) / len(cpu) if cpu else None,
         "ram_peak_mib_max": max(ram) if ram else None,

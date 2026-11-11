@@ -363,3 +363,35 @@ def test_rejected_case_keeps_the_code_but_no_analysis():
     run = run_case(cases[0], ollama, NullMeter(), Clock())
 
     assert (run.analysis, run.comment, run.rejection) == (None, None, "unknown_change")
+
+
+def test_cli_run_passes_the_attempt_timeout_to_ollama(tmp_path, monkeypatch):
+    seen = []
+
+    def handler(request):
+        seen.append(request.extensions["timeout"]["read"])
+        return _reply(_analysis())
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr("evals.__main__._client", lambda: client)
+
+    _main("run", "--model", "m", "--only", "app-01-cors", "--out", str(tmp_path / "a.json"))
+    _main(
+        "run", "--model", "m", "--only", "app-01-cors", "--timeout", "900",
+        "--out", str(tmp_path / "b.json"),
+    )  # fmt: skip
+
+    assert seen == [300, 900]
+
+
+def test_cases_over_the_production_timeout_are_counted():
+    _, cases = load_fixture_set()
+    runs = _summary_runs("valid", "timed out")
+    runs[0]["latency_s"] = 301.0
+    runs[1]["latency_s"] = 10.0
+    runs[1]["unavailable"] = "model timed out"
+
+    assert candidate_summary(cases, runs)["over_production_timeout"] == 2
+
+    runs[1]["unavailable"] = None
+    assert candidate_summary(cases, runs)["over_production_timeout"] == 1

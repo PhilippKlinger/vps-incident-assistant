@@ -126,6 +126,15 @@ def test_schema_denominator_and_first_attempt_failures_are_reported():
     assert "| First-attempt unreachable | n/a | n/a | 0 |" in text
 
 
+def test_cases_over_the_production_timeout_are_shown():
+    cases = _cases()
+    good = _good(cases, latency=301.0)
+
+    text = render_markdown(build_report(cases, [good]))
+
+    assert "| Cases over the production timeout (300 s) | n/a | n/a | 1 |" in text
+
+
 def test_rule_accuracy_and_examples_are_listed():
     cases = _cases()
 
