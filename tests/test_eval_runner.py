@@ -1,5 +1,6 @@
 import json
 from dataclasses import replace
+from pathlib import Path
 
 import httpx
 import pytest
@@ -200,7 +201,7 @@ def test_cli_report_writes_json_and_markdown(tmp_path, monkeypatch):
     )
 
 
-def test_cli_candidates_prints_matrix_with_an_empty_smoke_list(capsys):
+def test_cli_candidates_prints_matrix_and_existing_smoke_cases(capsys):
     assert _main("candidates") == 0
 
     data = json.loads(capsys.readouterr().out)
@@ -210,7 +211,11 @@ def test_cli_candidates_prints_matrix_with_an_empty_smoke_list(capsys):
         "qwen3.5:4b-q4_K_M",
     ]
     assert data["smoke_model"] == "qwen3.5:4b-q4_K_M"
-    assert data["smoke_cases"] == []
+    # The smoke run fails in CI if an id is missing, so pin them to the real case set.
+    cases_dir = Path(__file__).parents[1] / "evals" / "cases"
+    case_ids = {path.stem for path in cases_dir.glob("*.json")}
+    assert len(data["smoke_cases"]) == 3
+    assert set(data["smoke_cases"]) <= case_ids
 
 
 def test_underscore_canary_is_found_after_sanitizing():

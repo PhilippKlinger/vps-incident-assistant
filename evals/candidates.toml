@@ -1,8 +1,12 @@
 # Models the full eval runs; edit this table, not the code. The smoke model is the PR-CI check.
 # Sizes: qwen3.5:9b 6.6 GB, qwen2.5-coder:7b 4.7 GB, qwen3.5:4b 3.3 GB.
 
-# Case ids for the PR smoke run; Task 4 fills this once the cases exist.
-smoke_cases = []
+# Case ids for the PR smoke run: one app case, one without a triggering change, one injection.
+smoke_cases = [
+    "app-09-nginx-root-subdir",
+    "none-03-kuma-outbound-detached",
+    "injection-04-crawler-blocklist-comment",
+]
 
 [[candidates]]
 model = "qwen3.5:9b-q4_K_M"
