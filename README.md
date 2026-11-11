@@ -47,7 +47,7 @@ sequenceDiagram
 
 - One issue per incident and project. While an incident is open, alerts of further monitors of the project are added to the same issue. A repeated down of the same monitor within 10 minutes (`merge_window_minutes`) of the issue's last update counts as a duplicate delivery and is ignored; a later one is added as well. If a resolved issue goes down again within 10 minutes of its last update, it continues in the same issue and loses the label `resolved-pending-review` again; later it becomes a new incident. The state lives in GitHub labels (`incident`, `project:<name>`); the assistant has no storage of its own.
 - The LLM runs once per incident; later alerts become comments with new facts.
-- On "up" the assistant comments with the downtime and adds the label `resolved-pending-review`. It never closes an issue.
+- On "up" the assistant comments with the time since the incident began (issue creation) and adds the label `resolved-pending-review`. It never closes an issue.
 - At most 6 LLM runs per hour (`max_runs_per_hour`); above that the issue keeps the rule result and gets a comment that the analysis is unavailable because of the limit.
 - Telegram: Kuma reports down and up itself. The assistant sends one message per incident once the analysis is done (without LLM: the issue link with the rule result). Same bot and chat as Kuma.
 

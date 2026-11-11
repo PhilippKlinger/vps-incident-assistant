@@ -272,7 +272,7 @@ def test_pipeline_resolve_no_telegram():
     s = Setup()
     s.store.seed(7, ["incident", "project:videoflix", "monitor:videoflix-api"])
     handle_event(_event("Videoflix · API", "up"), s.deps)
-    assert "Erholt nach 5 min" in s.store.calls("POST", "/comments")[0]["body"]
+    assert "Erholt, 5 min nach Beginn der Störung" in s.store.calls("POST", "/comments")[0]["body"]
     assert s.store.calls("POST", "/labels") == [{"labels": ["resolved-pending-review"]}]
     deletes = [p for m, p, _ in s.store.requests if m == "DELETE"]
     assert deletes == ["/issues/7/labels/monitor:videoflix-api"]
