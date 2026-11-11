@@ -57,10 +57,21 @@ class Deps:
     now: Callable[[], datetime]
 
 
+def _safe_probe(event: KumaEvent, deps: Deps) -> ProbeResult | None:
+    # The issue must be written even if the own check of the URL breaks unexpectedly.
+    if not event.url:
+        return None
+    try:
+        return deps.probe(event.url)
+    except Exception as error:
+        log.warning("probe failed: %s", type(error).__name__)
+        return None
+
+
 def _build_context(
     event: KumaEvent, project, deps: Deps, now: datetime, *, read_github: bool = True
 ) -> IncidentContext:
-    probe = deps.probe(event.url) if event.url else None
+    probe = _safe_probe(event, deps)
     rule = classify(event, probe)
     reader = deps.reader if project.repos and read_github else None
     return build_context(event, project, probe, rule, reader, now)

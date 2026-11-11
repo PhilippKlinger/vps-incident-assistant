@@ -45,9 +45,10 @@ class IssueClient:
 
     def _request(self, method: str, path: str, *, ok_404: bool = False, **kwargs) -> httpx.Response:
         # Error messages carry only the status or exception type, never headers (token).
+        # HTTPError, not TransportError: a DecodingError is not a transport error.
         try:
             response = self._client.request(method, f"/repos/{self._repo}{path}", **kwargs)
-        except httpx.TransportError as exc:
+        except httpx.HTTPError as exc:
             raise IssueUnavailable(f"GitHub not reachable: {type(exc).__name__}") from None
         if response.status_code == 404 and ok_404:
             return response

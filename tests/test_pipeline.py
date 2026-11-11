@@ -328,14 +328,29 @@ def test_telegram_failure_does_not_stop(caplog):
 
 
 def test_run_event_logs_unexpected_error(caplog):
-    s = Setup()
+    s = Setup(llm=False)
+
+    def boom(text):
+        raise RuntimeError("kaputt")
+
+    s.deps.telegram = boom
+    run_event(_event(), s.deps)
+    assert "RuntimeError" in caplog.text
+
+
+def test_probe_error_still_creates_issue(caplog):
+    s = Setup(llm=False)
 
     def boom(url):
-        raise ValueError("kaputt")
+        # getaddrinfo raises UnicodeError for an empty or overlong label.
+        raise UnicodeError("label too long")
 
     s.deps.probe = boom
-    run_event(_event(), s.deps)
-    assert "ValueError" in caplog.text
+    handle_event(_event(), s.deps)
+    body = s.store.calls("POST", "/issues")[0]["body"]
+    assert "- F1: Kuma:" in body and "- F2:" not in body
+    assert len(s.telegram) == 1
+    assert "UnicodeError" in caplog.text
 
 
 def test_concurrent_downs_create_one_issue():
