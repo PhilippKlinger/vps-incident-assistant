@@ -32,8 +32,8 @@ def test_truncate_patch_line_boundary():
     out = truncate_patch(patch, max_chars=100)
 
     assert len(out) <= 100
-    assert out.endswith("\n… gekürzt")
-    body = out.removesuffix("\n… gekürzt")
+    assert out.endswith("\n… truncated")
+    body = out.removesuffix("\n… truncated")
     assert body.split("\n")[-1].startswith("line ") and len(body.split("\n")[-1]) == 8
     assert truncate_patch("short", 100) == "short"
 

@@ -27,25 +27,25 @@ class ProbeResult:
     def fact_texts(self) -> list[str]:
         texts = []
         if self.status_code is not None:
-            texts.append(f"HTTP {self.status_code} nach {self.latency_ms} ms")
+            texts.append(f"HTTP {self.status_code} in {self.latency_ms} ms")
         elif self.error == "refused":
-            texts.append("Verbindung abgelehnt")
+            texts.append("Connection refused")
         elif self.error == "timeout":
-            texts.append(f"Zeitüberschreitung nach {TIMEOUT_SECONDS} s")
+            texts.append(f"Timed out after {TIMEOUT_SECONDS} s")
         elif self.error == "tls":
-            texts.append("TLS-Fehler beim Verbindungsaufbau")
+            texts.append("TLS handshake failed")
         elif self.error == "other":
-            texts.append("Anfrage fehlgeschlagen")
+            texts.append("Request failed")
         # Only the count goes into the text, never the addresses themselves.
         if not self.addresses:
-            texts.append("DNS: keine Adresse")
+            texts.append("DNS: no address")
         elif len(self.addresses) == 1:
-            texts.append("DNS: 1 Adresse")
+            texts.append("DNS: 1 address")
         else:
-            texts.append(f"DNS: {len(self.addresses)} Adressen")
+            texts.append(f"DNS: {len(self.addresses)} addresses")
         if self.tls_days_left is not None:
-            unit = "Tag" if self.tls_days_left == 1 else "Tage"
-            texts.append(f"Zertifikat noch {self.tls_days_left} {unit} gültig")
+            unit = "day" if self.tls_days_left == 1 else "days"
+            texts.append(f"Certificate expires in {self.tls_days_left} {unit}")
         texts.extend(f"Header {name}: {value}" for name, value in self.headers.items())
         return texts
 

@@ -31,7 +31,7 @@ class Project:
     llm: bool
 
 
-UNKNOWN_PROJECT = Project("unknown", "unbekannt", (), (), (), False)
+UNKNOWN_PROJECT = Project("unknown", "unknown", (), (), (), False)
 
 
 @dataclass(frozen=True)

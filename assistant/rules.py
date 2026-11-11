@@ -36,53 +36,51 @@ def classify(event: KumaEvent, probe: ProbeResult | None) -> RuleResult:
         return RuleResult(
             Category.unknown,
             Severity.high,
-            "Der Monitor hat keine Adresse, deshalb wurde keine Prüfung durchgeführt.",
+            "The monitor has no URL, so no probe was run.",
         )
     if probe.error == "dns":
         return RuleResult(
-            Category.dns, Severity.critical, "Der Domainname lässt sich nicht auflösen."
+            Category.dns, Severity.critical, "DNS resolution fails for the host name."
         )
     if probe.error == "tls":
         return RuleResult(
             Category.tls,
             Severity.critical,
-            "Der TLS-Verbindungsaufbau schlägt fehl, das Zertifikat ist vermutlich ungültig.",
+            "The TLS handshake fails; the certificate is probably invalid.",
         )
     if probe.tls_days_left is not None and probe.tls_days_left < TLS_WARN_DAYS:
         return RuleResult(
             Category.tls,
             Severity.high,
-            f"Das Zertifikat läuft in {probe.tls_days_left} Tagen ab.",
+            f"The certificate expires in {probe.tls_days_left} days.",
         )
     if probe.error == "refused":
         return RuleResult(
             Category.proxy_down,
             Severity.critical,
-            "Die Verbindung wird abgelehnt, der Proxy nimmt keine Anfragen an.",
+            "The connection is refused; the proxy is not accepting requests.",
         )
     if probe.error == "timeout":
         return RuleResult(
-            Category.timeout, Severity.high, "Die Adresse antwortet nicht innerhalb der Frist."
+            Category.timeout, Severity.high, "The URL does not respond within the timeout."
         )
     code = probe.status_code
     if code in (502, 503, 504):
         return RuleResult(
             Category.upstream_502,
             Severity.high,
-            f"Die Adresse antwortet mit HTTP {code}, der Proxy erreicht die Anwendung nicht.",
+            f"The URL returns HTTP {code}; the proxy cannot reach the upstream application.",
         )
     if code is not None and code >= 500:
         return RuleResult(
             Category.app_error,
             Severity.high,
-            f"Die Anwendung antwortet mit HTTP {code}.",
+            f"The application returns HTTP {code}.",
         )
     if event.status == "down" and code == 200 and (event.url or "").endswith("/api/health/"):
         return RuleResult(
             Category.health_degraded,
             Severity.high,
-            "Der Health-Check antwortet mit HTTP 200, meldet aber einen Alarm.",
+            "The health check returns HTTP 200 but reports a degraded state.",
         )
-    return RuleResult(
-        Category.unknown, Severity.high, "Die Prüfung ergibt keine eindeutige Ursache."
-    )
+    return RuleResult(Category.unknown, Severity.high, "The probe found no clear cause.")

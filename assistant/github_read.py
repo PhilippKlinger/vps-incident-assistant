@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 
 import httpx
 
-_MARKER = "\n… gekürzt"
+_MARKER = "\n… truncated"
 # Malformed JSON or unexpected shapes are treated like an outage.
 _SHAPE_ERRORS = (ValueError, KeyError, TypeError)
 

@@ -42,7 +42,7 @@ def _clean(text: str) -> str:
 
 
 def _facts(event: KumaEvent, probe: ProbeResult | None, extra: list[str]) -> tuple[Fact, ...]:
-    kuma = f"Kuma: {event.monitor_name} ist {event.status} – {event.msg}"
+    kuma = f"Kuma: {event.monitor_name} is {event.status} – {event.msg}"
     rows = [("kuma", kuma)]
     if probe is not None:
         rows += [("probe", text) for text in probe.fact_texts()]
@@ -110,7 +110,7 @@ def build_context(
         except GitHubUnavailable:
             github_ok = False
             runs, raw, anchors = [], [], []
-    notes = runs if github_ok else ["Änderungen nicht abrufbar (GitHub nicht erreichbar)"]
+    notes = runs if github_ok else ["Changes unavailable (GitHub unreachable)"]
     return IncidentContext(
         project=project,
         event=event,

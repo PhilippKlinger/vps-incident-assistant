@@ -37,8 +37,8 @@ from assistant.telegram import TelegramError
 
 log = logging.getLogger(__name__)
 
-LIMIT_REASON = "Stundenlimit erreicht"
-INTERNAL_REASON = "interner Fehler"
+LIMIT_REASON = "hourly limit reached"
+INTERNAL_REASON = "internal error"
 
 # Kuma sends the Web-App and API alarms almost at once; without this lock both would
 # find no open issue and create one each.
@@ -145,7 +145,7 @@ def _notify(deps: Deps, text: str) -> None:
 
 
 def _comment_unavailable(number: int, reason: str, deps: Deps) -> None:
-    # Best effort: "Analyse folgt" should not stay without an answer.
+    # Best effort: "Analysis pending" should not stay without an answer.
     try:
         deps.issues.comment(number, unavailable_comment(reason))
     except IssueUnavailable as error:
