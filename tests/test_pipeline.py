@@ -10,7 +10,14 @@ from assistant.github_read import GitHubReader
 from assistant.issues import IssueClient
 from assistant.llm import OllamaClient, RateLimiter
 from assistant.models import KumaEvent
-from assistant.pipeline import Deps, handle_event, run_event
+from assistant.pipeline import (
+    Deps,
+    _build_context,
+    _follow_up,
+    _FollowUp,
+    handle_event,
+    run_event,
+)
 from assistant.probe import ProbeResult
 from assistant.telegram import TelegramError
 
@@ -356,6 +363,37 @@ def test_probe_error_still_creates_issue(caplog):
     assert "- F1: Kuma:" in body and "- F2:" not in body
     assert len(s.telegram) == 1
     assert "UnicodeError" in caplog.text
+
+
+def test_analyses_run_one_at_a_time():
+    s = Setup()
+    s.store.seed(1, ["incident"])
+    active = 0
+    peak = 0
+    guard = threading.Lock()
+
+    def ollama(request):
+        nonlocal active, peak
+        with guard:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.05)
+        with guard:
+            active -= 1
+        return httpx.Response(200, json={"message": {"content": json.dumps(ANSWER)}})
+
+    s.deps.ollama = OllamaClient(
+        httpx.Client(transport=httpx.MockTransport(ollama)), "http://ollama:11434", "m"
+    )
+    ctx = _build_context(_event(), VIDEOFLIX, s.deps, NOW)
+    jobs = [_FollowUp(ctx, 1, True) for _ in range(2)]
+    threads = [threading.Thread(target=_follow_up, args=(j, s.deps)) for j in jobs]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert peak == 1
+    assert len(s.telegram) == 2
 
 
 def test_concurrent_downs_create_one_issue():
