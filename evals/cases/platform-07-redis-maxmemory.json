@@ -1,0 +1,73 @@
+{
+  "id": "platform-07-redis-maxmemory",
+  "group": "platform",
+  "note": "Redis is now capped at 64 MB with noeviction, so once cache keys, throttle counters and job results filled it, every cache write failed and the health check reports cache error.",
+  "event": {
+    "monitor_name": "Videoflix · API",
+    "url": "https://videoflix.philipp-klinger.com/api/health/",
+    "status": "down",
+    "msg": "Request failed with status code 503",
+    "time": "2026-11-18T22:15:06+00:00"
+  },
+  "probe": {
+    "status_code": 503,
+    "error": null,
+    "latency_ms": 46,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "tls_days_left": 77,
+    "addresses": [
+      "203.0.113.10"
+    ]
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/videoflix-frontend",
+      "sha": "8df3ecaa",
+      "minutes_before": 1190
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "5b24324a",
+      "minutes_before": 1150
+    },
+    {
+      "repo": "PhilippKlinger/vps-monitoring",
+      "sha": "6c79ff0a",
+      "minutes_before": 400
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "24f9d79d",
+      "minutes_before": 300
+    },
+    {
+      "repo": "PhilippKlinger/vps-edge",
+      "sha": "aa312229",
+      "minutes_before": 2500
+    }
+  ],
+  "cause": {
+    "repo": "PhilippKlinger/videoflix-deploy",
+    "sha": "54969a7e8935246f4affedf658227f2412264788",
+    "title": "fix: cap the memory of redis",
+    "author": "Philipp Klinger",
+    "files": [
+      "compose.yaml"
+    ],
+    "patch": "diff --git a/compose.yaml b/compose.yaml\n@@ -42,7 +42,9 @@ services:\n   redis:\n     # Cache, rate limits and job queue; nothing here needs to survive a restart\n     image: redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537\n-    command: [\"redis-server\", \"--save\", \"\", \"--appendonly\", \"no\"]\n+    # Bounded like the other services; noeviction: queued conversion and mail jobs are never dropped silently\n+    command: [\"redis-server\", \"--save\", \"\", \"--appendonly\", \"no\", \"--maxmemory\", \"64mb\", \"--maxmemory-policy\", \"noeviction\"]\n     healthcheck:\n       test: [\"CMD\", \"redis-cli\", \"ping\"]\n       interval: 10s",
+    "body": "",
+    "minutes_before": 1260
+  },
+  "deploy_runs": [
+    "Deploy 2026-11-18 17:23 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-18 02:33 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "health_degraded",
+    "suspected_change": "54969a7e8935246f4affedf658227f2412264788",
+    "runbook": "videoflix-deploy#database-or-cache-not-ok"
+  }
+}

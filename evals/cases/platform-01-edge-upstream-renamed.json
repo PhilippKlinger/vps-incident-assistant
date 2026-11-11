@@ -1,0 +1,74 @@
+{
+  "id": "platform-01-edge-upstream-renamed",
+  "group": "platform",
+  "note": "The edge now proxies the API to videoflix-api, but videoflix-deploy still gives web the alias videoflix-web, so Caddy cannot resolve the upstream and answers 502 for /api/ only.",
+  "event": {
+    "monitor_name": "Videoflix · API",
+    "url": "https://videoflix.philipp-klinger.com/api/health/",
+    "status": "down",
+    "msg": "Request failed with status code 502",
+    "time": "2026-11-12T15:37:45+00:00"
+  },
+  "probe": {
+    "status_code": 502,
+    "error": null,
+    "latency_ms": 2,
+    "headers": {
+      "server": "Caddy"
+    },
+    "tls_days_left": 83,
+    "addresses": [
+      "203.0.113.10"
+    ]
+  },
+  "history": [
+    {
+      "repo": "PhilippKlinger/videoflix-deploy",
+      "sha": "47b2b943",
+      "minutes_before": 200
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-backend",
+      "sha": "13c3c635",
+      "minutes_before": 900
+    },
+    {
+      "repo": "PhilippKlinger/videoflix-frontend",
+      "sha": "889e66d4",
+      "minutes_before": 1000
+    },
+    {
+      "repo": "PhilippKlinger/vps-monitoring",
+      "sha": "4132b492",
+      "minutes_before": 1500
+    },
+    {
+      "repo": "PhilippKlinger/vps-edge",
+      "sha": "34110dcc",
+      "minutes_before": 2900
+    }
+  ],
+  "cause": {
+    "repo": "PhilippKlinger/vps-edge",
+    "sha": "25eb5ef8239fd71433a9e05e2a25365dbe3a6588",
+    "title": "refactor: name the videoflix upstreams after their service",
+    "author": "Philipp Klinger",
+    "files": [
+      ".github/workflows/ci.yml",
+      "sites/videoflix.caddy"
+    ],
+    "patch": "diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\n@@ -78,7 +78,7 @@ jobs:\n           set -Eeuo pipefail\n           docker compose -f compose.yaml -f \"${RUNNER_TEMP}/compose.ci.yaml\" up -d\n-          docker run -d --name videoflix-web --hostname videoflix-web --network edge --network-alias videoflix-web \"${STUB_IMAGE}\" --port 8000\n+          docker run -d --name videoflix-api --hostname videoflix-api --network edge --network-alias videoflix-api \"${STUB_IMAGE}\" --port 8000\n           docker run -d --name videoflix-frontend --hostname videoflix-frontend --network edge --network-alias videoflix-frontend \"${STUB_IMAGE}\" --port 8080\n@@ -136,9 +136,9 @@ jobs:\n           videoflix=videoflix.philipp-klinger.com\n-          expect \"${videoflix}\" GET /api/health/ 200 videoflix-web\n-          expect \"${videoflix}\" GET /admin/ 200 videoflix-web\n-          expect \"${videoflix}\" GET /static/app.css 200 videoflix-web\n+          expect \"${videoflix}\" GET /api/health/ 200 videoflix-api\n+          expect \"${videoflix}\" GET /admin/ 200 videoflix-api\n+          expect \"${videoflix}\" GET /static/app.css 200 videoflix-api\n           expect \"${videoflix}\" GET / 200 videoflix-frontend\ndiff --git a/sites/videoflix.caddy b/sites/videoflix.caddy\n@@ -13,7 +13,7 @@ videoflix.philipp-klinger.com {\n \t\t\tmax_size 55MB\n \t\t}\n \t\t# Caddy sets X-Forwarded-For to the client address (TRUSTED_PROXY_COUNT=1 in Django)\n-\t\treverse_proxy videoflix-web:8000\n+\t\treverse_proxy videoflix-api:8000\n \t}\n \n \thandle {",
+    "body": "",
+    "minutes_before": 11
+  },
+  "deploy_runs": [
+    "Deploy 2026-11-12 00:45 UTC: success (repository_dispatch, image-published)",
+    "Deploy 2026-11-11 23:05 UTC: success (repository_dispatch, image-published)"
+  ],
+  "canary": null,
+  "expected": {
+    "category": "upstream_502",
+    "suspected_change": "25eb5ef8239fd71433a9e05e2a25365dbe3a6588",
+    "runbook": "vps-edge#upstream-502"
+  }
+}
