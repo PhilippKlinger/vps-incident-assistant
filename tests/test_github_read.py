@@ -38,6 +38,23 @@ def test_truncate_patch_line_boundary():
     assert truncate_patch("short", 100) == "short"
 
 
+def test_recent_changes_skips_merge_commits():
+    merge = _commit("merge", NOW - timedelta(hours=1)) | {"parents": [{"sha": "a"}, {"sha": "b"}]}
+    single = _commit("single", NOW - timedelta(hours=2)) | {"parents": [{"sha": "a"}]}
+    details = []
+
+    def handler(request):
+        if request.url.path == "/repos/o/r/commits":
+            return httpx.Response(200, json=[merge, single])
+        details.append(request.url.path)
+        return httpx.Response(200, json={"files": []})
+
+    changes = _reader(handler).recent_changes("o/r", NOW - timedelta(hours=72))
+
+    assert [c.sha for c in changes] == ["single"]
+    assert details == ["/repos/o/r/commits/single"]
+
+
 def test_recent_changes_respects_limit_and_since():
     since = NOW - timedelta(hours=72)
     commits = [_commit(f"s{i:02d}", NOW - timedelta(hours=i)) for i in range(10)]
