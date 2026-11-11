@@ -57,11 +57,12 @@ def check_set(cases: list[Case], store: HistoryStore) -> list[str]:
         newest = sum(
             1 for c in with_cause if c.change_shas.get("C1") == c.expected.suspected_change
         )
-        share = round(100 * newest / len(with_cause))
+        share = 100 * newest / len(with_cause)
         low, high = RECENCY_RANGE_PCT
         if not low <= share <= high:
             problems.append(
-                f"cause is the newest change in {share} % of cases, expected {low}-{high} %"
+                f"cause is the newest change in {round(share, 1):g} % of cases, "
+                f"expected {low}-{high} %"
             )
     no_runbook = sum(1 for c in with_cause if c.expected.runbook == NONE)
     if no_runbook < MIN_RUNBOOK_NONE:

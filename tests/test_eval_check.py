@@ -145,3 +145,18 @@ def test_cli_baselines_prints_table():
     assert "latest_change" in result.stdout
     assert "keyword_match" in result.stdout
     assert "rule accuracy" in result.stdout.lower()
+
+
+def test_recency_share_is_compared_unrounded():
+    store, cases = load_fixture_set()
+    base = cases[0]
+    second = base.change_shas["C2"]
+    newest = base
+    older = replace(base, expected=replace(base.expected, suspected_change=second))
+    # 16 of 65 = 24.6 %: rounding to 25 would let it pass.
+    pool = [replace(newest, id=f"n{i}") for i in range(16)]
+    pool += [replace(older, id=f"o{i}") for i in range(49)]
+
+    problems = check_set(pool, store)
+
+    assert "cause is the newest change in 24.6 % of cases, expected 25-50 %" in problems
