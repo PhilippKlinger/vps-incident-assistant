@@ -9,8 +9,8 @@ x-logging: &logging
 
 services:
   assistant:
-    # No digest exists before the first build on main; set it in .env until it is pinned here.
-    image: ${ASSISTANT_IMAGE:?set ASSISTANT_IMAGE to ghcr.io/philippklinger/vps-incident-assistant@sha256:<digest>}
+    # Pinned build from main; .env may override ASSISTANT_IMAGE (CI sets it to its own build).
+    image: ${ASSISTANT_IMAGE:-ghcr.io/philippklinger/vps-incident-assistant@sha256:0cb00db1c0eedc96ea5b82468dfd66cb7b70fb053660bb1659385772000544d2}
     env_file: [.env]
     # The service writes nothing to disk; /tmp only for libraries that expect it
     read_only: true
