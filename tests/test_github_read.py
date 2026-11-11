@@ -179,3 +179,12 @@ def test_malformed_json_raises_unavailable():
     shaped = _reader(lambda request: httpx.Response(200, json={"unexpected": 1}))
     with pytest.raises(GitHubUnavailable):
         shaped.deploy_runs("o/r", since)
+
+
+def test_decoding_error_raises_unavailable():
+    # DecodingError is an HTTPError but not a TransportError.
+    def handler(request):
+        raise httpx.DecodingError("broken gzip")
+
+    with pytest.raises(GitHubUnavailable, match="DecodingError"):
+        _reader(handler).readme("o/r")

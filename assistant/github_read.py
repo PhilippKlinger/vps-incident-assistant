@@ -56,9 +56,10 @@ class GitHubReader:
 
     def _get(self, path: str, *, ok_404: bool = False, **kwargs) -> httpx.Response | None:
         # Error messages carry only the status or exception type, never headers (token).
+        # HTTPError, not TransportError: a DecodingError is not a transport error.
         try:
             response = self._client.get(path, **kwargs)
-        except httpx.TransportError as exc:
+        except httpx.HTTPError as exc:
             raise GitHubUnavailable(f"GitHub not reachable: {type(exc).__name__}") from None
         status = response.status_code
         if 300 <= status < 400:

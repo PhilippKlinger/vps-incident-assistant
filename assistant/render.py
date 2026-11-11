@@ -74,8 +74,9 @@ def flap_comment(ctx: IncidentContext) -> str:
 
 
 def resolved_comment(duration: timedelta) -> str:
+    # Measured from the issue creation, so a flap in between counts towards it.
     minutes = max(1, int(duration.total_seconds() // 60))
-    return f"Erholt nach {minutes} min. Nachbetrachtung offen."
+    return f"Erholt, {minutes} min nach Beginn der Störung. Nachbetrachtung offen."
 
 
 def unavailable_comment(reason: str) -> str:

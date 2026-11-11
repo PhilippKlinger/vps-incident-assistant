@@ -178,6 +178,27 @@ jobs:
             fi
           done
 
+      - name: Capabilities dropped, no privilege escalation, read-only assistant
+        run: |
+          set -Eeuo pipefail
+          for id in $(docker compose ps -aq); do
+            caps="$(docker inspect --format '{{json .HostConfig.CapDrop}}' "${id}")"
+            opts="$(docker inspect --format '{{json .HostConfig.SecurityOpt}}' "${id}")"
+            echo "$(docker inspect --format '{{.Name}}' "${id}"): cap_drop=${caps} security_opt=${opts}"
+            if ! grep -Eq '"(CAP_)?ALL"' <<< "${caps}"; then
+              echo "::error::Container does not drop all capabilities"
+              exit 1
+            fi
+            if ! grep -Eq '"no-new-privileges(:true)?"' <<< "${opts}"; then
+              echo "::error::Container allows privilege escalation"
+              exit 1
+            fi
+          done
+          id="$(docker compose ps -q assistant)"
+          read_only="$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "${id}")"
+          echo "Assistant read-only root filesystem: ${read_only}"
+          test "${read_only}" = "true"
+
       - name: Wait for the assistant healthcheck
         run: |
           set -Eeuo pipefail
@@ -217,6 +238,19 @@ jobs:
             http://incident-assistant:8080/webhook/kuma)"
           echo "HTTP ${code}"
           test "${code}" = "401"
+
+      # With the secret from .env the route answers; Kuma's test message is ignored.
+      - name: Webhook with secret accepts the Kuma test message
+        run: |
+          set -Eeuo pipefail
+          response="$(docker run --rm -i --network incident "${CURL_IMAGE}" \
+            -s -w '\n%{http_code}' -X POST \
+            -H 'Content-Type: application/json' -H 'X-Webhook-Secret: ci-dummy' \
+            --data-binary @- \
+            http://incident-assistant:8080/webhook/kuma < tests/fixtures/kuma_test.json)"
+          echo "${response}"
+          test "$(tail -n 1 <<< "${response}")" = "200"
+          test "$(head -n 1 <<< "${response}")" = '{"status":"ignored"}'
 
       - name: Show logs on failure
         if: failure()

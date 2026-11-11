@@ -122,3 +122,12 @@ def test_transport_error_raises_type_only():
         _client(handler).find_open("videoflix")
     assert "ConnectError" in str(info.value)
     assert "secret" not in str(info.value)
+
+
+def test_decoding_error_raises_unavailable():
+    # DecodingError is an HTTPError but not a TransportError.
+    def handler(request):
+        raise httpx.DecodingError("broken gzip")
+
+    with pytest.raises(IssueUnavailable, match="DecodingError"):
+        _client(handler).comment(12, "x")

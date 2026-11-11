@@ -231,6 +231,29 @@ def test_pipeline_reopen_flap():
     assert s.telegram == []
 
 
+def _counting_reader(calls: list) -> GitHubReader:
+    def handler(request):
+        calls.append(request.url.path)
+        return httpx.Response(200, json=[])
+
+    client = httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler))
+    return GitHubReader(client)
+
+
+def test_pipeline_append_and_flap_skip_github_read():
+    for labels, updated in (
+        (["incident", "project:videoflix", "monitor:videoflix-web-app"], None),
+        (["incident", "project:videoflix", "resolved-pending-review"], NOW - timedelta(minutes=3)),
+    ):
+        s = Setup()
+        reads = []
+        s.deps.reader = _counting_reader(reads)
+        s.store.seed(7, labels, updated_at=updated)
+        handle_event(_event(), s.deps)
+        assert len(s.store.calls("POST", "/comments")) == 1
+        assert reads == []
+
+
 def test_pipeline_monitor_up_with_other_monitor_down():
     s = Setup()
     s.store.seed(
@@ -249,7 +272,7 @@ def test_pipeline_resolve_no_telegram():
     s = Setup()
     s.store.seed(7, ["incident", "project:videoflix", "monitor:videoflix-api"])
     handle_event(_event("Videoflix · API", "up"), s.deps)
-    assert "Erholt nach 5 min" in s.store.calls("POST", "/comments")[0]["body"]
+    assert "Erholt, 5 min nach Beginn der Störung" in s.store.calls("POST", "/comments")[0]["body"]
     assert s.store.calls("POST", "/labels") == [{"labels": ["resolved-pending-review"]}]
     deletes = [p for m, p, _ in s.store.requests if m == "DELETE"]
     assert deletes == ["/issues/7/labels/monitor:videoflix-api"]
@@ -262,6 +285,20 @@ def test_pipeline_ignores_duplicate_down():
     handle_event(_event("Videoflix · API"), s.deps)
     assert [m for m, _, _ in s.store.requests] == ["GET"]
     assert s.probe_calls == []
+
+
+def test_pipeline_appends_same_monitor_down_after_window():
+    s = Setup()
+    s.store.seed(
+        7,
+        ["incident", "project:videoflix", "monitor:videoflix-api"],
+        created_at=NOW - timedelta(hours=2),
+        updated_at=NOW - timedelta(minutes=11),
+    )
+    handle_event(_event("Videoflix · API"), s.deps)
+    assert "Weiterer Alarm" in s.store.calls("POST", "/comments")[0]["body"]
+    assert s.store.calls("POST", "/issues") == []
+    assert s.telegram == []
 
 
 def test_issue_unavailable_is_logged_and_swallowed(caplog):
@@ -291,14 +328,29 @@ def test_telegram_failure_does_not_stop(caplog):
 
 
 def test_run_event_logs_unexpected_error(caplog):
-    s = Setup()
+    s = Setup(llm=False)
+
+    def boom(text):
+        raise RuntimeError("kaputt")
+
+    s.deps.telegram = boom
+    run_event(_event(), s.deps)
+    assert "RuntimeError" in caplog.text
+
+
+def test_probe_error_still_creates_issue(caplog):
+    s = Setup(llm=False)
 
     def boom(url):
-        raise ValueError("kaputt")
+        # getaddrinfo raises UnicodeError for an empty or overlong label.
+        raise UnicodeError("label too long")
 
     s.deps.probe = boom
-    run_event(_event(), s.deps)
-    assert "ValueError" in caplog.text
+    handle_event(_event(), s.deps)
+    body = s.store.calls("POST", "/issues")[0]["body"]
+    assert "- F1: Kuma:" in body and "- F2:" not in body
+    assert len(s.telegram) == 1
+    assert "UnicodeError" in caplog.text
 
 
 def test_concurrent_downs_create_one_issue():
@@ -340,3 +392,40 @@ def test_analyze_error_still_sends_one_telegram(monkeypatch, caplog):
     handle_event(_event(), s.deps)
     assert len(s.telegram) == 1
     assert "KeyError" in caplog.text
+
+
+def test_analyze_error_resolves_analysis_pending(monkeypatch, caplog):
+    s = Setup()
+
+    def broken(ctx, ollama):
+        raise KeyError("bug")
+
+    monkeypatch.setattr("assistant.pipeline.analyze", broken)
+    handle_event(_event(), s.deps)
+    comments = s.store.calls("POST", "/comments")
+    assert [c["body"] for c in comments] == [
+        "Analyse nicht verfügbar: interner Fehler. Es gilt das Regel-Ergebnis oben."
+    ]
+    assert len(s.telegram) == 1
+
+
+def test_analyze_error_with_failing_comment_still_sends_telegram(monkeypatch, caplog):
+    s = Setup()
+    original = s.store.handler
+
+    def handler(request):
+        if request.method == "POST" and request.url.path.endswith("/comments"):
+            return httpx.Response(500)
+        return original(request)
+
+    def broken(ctx, ollama):
+        raise KeyError("bug")
+
+    monkeypatch.setattr("assistant.pipeline.analyze", broken)
+    s.deps.issues = IssueClient(
+        httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler)),
+        REPO,
+    )
+    handle_event(_event(), s.deps)
+    assert len(s.telegram) == 1
+    assert "KeyError" in caplog.text and "IssueUnavailable" in caplog.text

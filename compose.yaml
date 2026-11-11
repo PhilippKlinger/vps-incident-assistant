@@ -45,6 +45,9 @@ services:
       OLLAMA_KEEP_ALIVE: 5m
       OLLAMA_NUM_PARALLEL: "1"
       OLLAMA_MAX_LOADED_MODELS: "1"
+      # The prompt (facts, changes, runbook sections) is sized for 16k tokens; the default
+      # is smaller and Ollama would cut longer prompts silently
+      OLLAMA_CONTEXT_LENGTH: "16384"
     volumes:
       # Bind mount instead of a named volume: a new named volume belongs to root
       - ./models:/models

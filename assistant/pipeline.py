@@ -38,6 +38,7 @@ from assistant.telegram import TelegramError
 log = logging.getLogger(__name__)
 
 LIMIT_REASON = "Stundenlimit erreicht"
+INTERNAL_REASON = "interner Fehler"
 
 # Kuma sends the Web-App and API alarms almost at once; without this lock both would
 # find no open issue and create one each.
@@ -57,10 +58,23 @@ class Deps:
     now: Callable[[], datetime]
 
 
-def _build_context(event: KumaEvent, project, deps: Deps, now: datetime) -> IncidentContext:
-    probe = deps.probe(event.url) if event.url else None
+def _safe_probe(event: KumaEvent, deps: Deps) -> ProbeResult | None:
+    # The issue must be written even if the own check of the URL breaks unexpectedly.
+    if not event.url:
+        return None
+    try:
+        return deps.probe(event.url)
+    except Exception as error:
+        log.warning("probe failed: %s", type(error).__name__)
+        return None
+
+
+def _build_context(
+    event: KumaEvent, project, deps: Deps, now: datetime, *, read_github: bool = True
+) -> IncidentContext:
+    probe = _safe_probe(event, deps)
     rule = classify(event, probe)
-    reader = deps.reader if project.repos else None
+    reader = deps.reader if project.repos and read_github else None
     return build_context(event, project, probe, rule, reader, now)
 
 
@@ -102,10 +116,14 @@ def _apply(
         issues.comment(number, resolved_comment(now - issue.created_at))
         issues.add_labels(number, [RESOLVED])
     elif action is Action.APPEND:
-        issues.comment(number, append_comment(_build_context(event, project, deps, now)))
+        # Follow-up comments show only rule and facts; the GitHub read (about 60 requests)
+        # would hold the issue lock for nothing.
+        ctx = _build_context(event, project, deps, now, read_github=False)
+        issues.comment(number, append_comment(ctx))
         issues.add_labels(number, [label])
     elif action is Action.REOPEN_FLAP:
-        issues.comment(number, flap_comment(_build_context(event, project, deps, now)))
+        ctx = _build_context(event, project, deps, now, read_github=False)
+        issues.comment(number, flap_comment(ctx))
         issues.remove_label(number, RESOLVED)
         issues.add_labels(number, [label])
     elif action is Action.CREATE:
@@ -124,6 +142,14 @@ def _notify(deps: Deps, text: str) -> None:
         deps.telegram(text)
     except TelegramError as error:
         log.warning("telegram failed: %s", error)
+
+
+def _comment_unavailable(number: int, reason: str, deps: Deps) -> None:
+    # Best effort: "Analyse folgt" should not stay without an answer.
+    try:
+        deps.issues.comment(number, unavailable_comment(reason))
+    except IssueUnavailable as error:
+        log.error("%s during analysis comment", type(error).__name__)
 
 
 def _comment_analysis(job: _FollowUp, deps: Deps) -> Analysis | None:
@@ -148,6 +174,8 @@ def _comment_analysis(job: _FollowUp, deps: Deps) -> Analysis | None:
         log.error("%s during analysis comment", type(error).__name__)
     except Exception as error:
         log.exception("analysis step failed: %s", type(error).__name__)
+        reason = INTERNAL_REASON
+        _comment_unavailable(job.number, reason, deps)
     if job.run_llm or job.limited:
         suffix = f" unavailable={reason}" if reason else ""
         _log_step(Action.CREATE, job.number, started, f" llm=done{suffix}")

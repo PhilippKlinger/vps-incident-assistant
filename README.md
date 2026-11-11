@@ -35,7 +35,7 @@ sequenceDiagram
 
 **Rules vs. LLM.** Rules produce category and severity. The LLM never does; it only fills a fixed schema: `suspected_change`, `change_reasoning`, `runbook`, `runbook_reasoning`, `summary`, `evidence` and `confidence`. Runs use `temperature: 0`, thinking off, the schema as `format`, a 300 s timeout and one retry.
 
-**Facts.** Every fact gets an ID (`F1`, `F2` ...), every change an ID (`C1` ... with repo and SHA), every runbook section an anchor (for example `vps-edge#troubleshooting-502`).
+**Facts.** Every fact gets an ID (`F1`, `F2` ...), every change an ID (`C1` ... with repo and SHA), every runbook section an anchor (for example `vps-edge#upstream-502`).
 
 - Outside view: the Kuma payload plus the assistant's own check of the URL (HTTP status, selected headers, response time, TLS expiry, DNS).
 - Deploy context: per repo the commits of the last 72 hours (at most 10), changed files, shortened diffs (2000 characters per change, 12000 in total) and the latest runs of the deploy workflow.
@@ -45,9 +45,9 @@ sequenceDiagram
 
 **Lifecycle.**
 
-- One issue per incident and project. While an incident is open, further alerts of the project are added to the same issue. If a resolved issue goes down again within 10 minutes (`merge_window_minutes`), it is reopened; later it becomes a new incident. The state lives in GitHub labels (`incident`, `project:<name>`); the assistant has no storage of its own.
+- One issue per incident and project. While an incident is open, alerts of further monitors of the project are added to the same issue. A repeated down of the same monitor within 10 minutes (`merge_window_minutes`) of the issue's last update counts as a duplicate delivery and is ignored; a later one is added as well. If a resolved issue goes down again within 10 minutes of its last update, it continues in the same issue and loses the label `resolved-pending-review` again; later it becomes a new incident. The state lives in GitHub labels (`incident`, `project:<name>`); the assistant has no storage of its own.
 - The LLM runs once per incident; later alerts become comments with new facts.
-- On "up" the assistant comments with the downtime and adds the label `resolved-pending-review`. It never closes an issue.
+- On "up" the assistant comments with the time since the incident began (issue creation) and adds the label `resolved-pending-review`. It never closes an issue.
 - At most 6 LLM runs per hour (`max_runs_per_hour`); above that the issue keeps the rule result and gets a comment that the analysis is unavailable because of the limit.
 - Telegram: Kuma reports down and up itself. The assistant sends one message per incident once the analysis is done (without LLM: the issue link with the rule result). Same bot and chat as Kuma.
 
@@ -117,7 +117,7 @@ The stack lives in `/srv/incident` next to the other stacks. `compose.yaml` pins
 
    ```bash
    cd /srv/incident
-   install -d -o 1000 -g 1000 models
+   sudo install -d -o 1000 -g 1000 models
    ```
 
 3. Pull the images and download the model once. Only the one-off `ollama-pull` service (profile `setup`) has internet access; the running Ollama never does.
@@ -135,11 +135,11 @@ The stack lives in `/srv/incident` next to the other stacks. `compose.yaml` pins
    ```
 
 5. In Uptime Kuma add a webhook notification to `http://incident-assistant:8080/webhook/kuma` with the header `X-Webhook-Secret`, and press *Test*. The assistant log shows `ignored` for the test event. Create the monitor `Statusseite` if it does not exist yet.
-6. Check Ollama's limits: during one run `docker stats` shows Ollama within 8 GiB and 2 CPUs, and five minutes later the model is unloaded (`docker compose exec ollama ollama ps` is empty).
+6. Check Ollama's limits: during one run with the configured context of 16384 tokens `docker stats` shows Ollama within 8 GiB and 2 CPUs, and five minutes later the model is unloaded (`docker compose exec ollama ollama ps` is empty).
 
 A new model goes the same way: change `OLLAMA_MODEL` in `.env` and repeat the `ollama-pull` step.
 
-Resources: the assistant gets 256 MB and 0.5 CPU. Ollama gets `cpus: 2`, `mem_limit: 8g` and a low `cpu_shares`, keeps one model loaded (`OLLAMA_MAX_LOADED_MODELS=1`), handles one request at a time (`OLLAMA_NUM_PARALLEL=1`) and unloads the model after 5 minutes (`OLLAMA_KEEP_ALIVE=5m`). If Ollama exceeds the limit, the kernel stops only Ollama.
+Resources: the assistant gets 256 MB and 0.5 CPU. Ollama gets `cpus: 2`, `mem_limit: 8g` and a low `cpu_shares`, keeps one model loaded (`OLLAMA_MAX_LOADED_MODELS=1`), handles one request at a time (`OLLAMA_NUM_PARALLEL=1`) with a context of 16384 tokens (`OLLAMA_CONTEXT_LENGTH`, the prompt is sized for it; the KV cache counts towards the memory limit) and unloads the model after 5 minutes (`OLLAMA_KEEP_ALIVE=5m`). If Ollama exceeds the limit, the kernel stops only Ollama.
 
 ## Limits
 

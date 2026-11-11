@@ -56,8 +56,10 @@ def _decide_down(issue: Issue | None, label: str, now: datetime, window: timedel
     if RESOLVED in issue.labels:
         # A quick flap goes back into the same issue; later it is a new incident.
         return Action.REOPEN_FLAP if now - issue.updated_at <= window else Action.CREATE
-    # Kuma may deliver the same down event twice.
-    return Action.IGNORE if label in issue.labels else Action.APPEND
+    # Kuma may deliver the same down event twice. Later downs of that monitor are added,
+    # so a lost "up" does not silence the monitor until a human closes the issue.
+    duplicate = label in issue.labels and now - issue.updated_at <= window
+    return Action.IGNORE if duplicate else Action.APPEND
 
 
 def _decide_up(issue: Issue | None, label: str) -> Action:

@@ -138,9 +138,9 @@ def test_append_and_flap_comments():
 
 def test_resolved_comment_duration():
     assert resolved_comment(timedelta(minutes=12, seconds=59)) == (
-        "Erholt nach 12 min. Nachbetrachtung offen."
+        "Erholt, 12 min nach Beginn der Störung. Nachbetrachtung offen."
     )
-    assert resolved_comment(timedelta(seconds=5)).startswith("Erholt nach 1 min.")
+    assert resolved_comment(timedelta(seconds=5)).startswith("Erholt, 1 min nach Beginn")
 
 
 def test_unavailable_comment():

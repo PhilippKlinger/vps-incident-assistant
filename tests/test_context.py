@@ -22,9 +22,9 @@ EVENT = KumaEvent(
 PROBE = ProbeResult(502, None, 30, {"server": "caddy"}, 60, ("1.2.3.4",))
 
 
-def _raw(repo, i, patch="p", minutes=0):
+def _raw(repo, i, patch="p", minutes=0, title=None, body=""):
     when = NOW - timedelta(minutes=minutes)
-    return RawChange(repo, f"sha{repo}{i}", f"t{i}", "alice", when, ("f",), patch, "")
+    return RawChange(repo, f"sha{repo}{i}", title or f"t{i}", "alice", when, ("f",), patch, body)
 
 
 class FakeReader:
@@ -90,6 +90,33 @@ def test_context_diff_budget():
     assert len(ctx.changes) == 15
     assert sum(len(c.diff_excerpt) for c in ctx.changes) <= 12000
     assert ctx.changes[0].diff_excerpt != ""
+
+
+def test_context_caps_commit_title_and_body():
+    raw = _raw("o/a", 1, title="T" * 1000, body="release notes\n" * 1000)
+    reader = FakeReader(changes={"o/a": [raw]})
+
+    change = build_context(EVENT, PROJECT, PROBE, RULE, reader, NOW).changes[0]
+
+    assert len(change.title) <= 200 and change.title.startswith("TTT")
+    assert len(change.body) <= 500 and change.body.endswith("\n… gekürzt")
+
+
+def test_context_budget_counts_title_and_body():
+    big = "x" * 2000
+    changes = [
+        _raw("o/a", i, big, minutes=i, title=f"t{i} " + "T" * 300, body="b\n" * 1000)
+        for i in range(10)
+    ]
+    reader = FakeReader(changes={"o/a": changes})
+
+    ctx = build_context(EVENT, PROJECT, PROBE, RULE, reader, NOW)
+
+    total = sum(len(c.title) + len(c.body) + len(c.diff_excerpt) for c in ctx.changes)
+    assert total <= 12000
+    # Titles are counted first, so every change keeps its title in the issue list.
+    assert all(c.title.startswith(f"t{i} ") for i, c in enumerate(ctx.changes))
+    assert ctx.changes[0].body != "" and ctx.changes[-1].diff_excerpt == ""
 
 
 def test_context_without_github():
