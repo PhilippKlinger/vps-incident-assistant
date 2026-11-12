@@ -35,13 +35,3 @@ updates:
     ignore:
       - dependency-name: "python"
         versions: [">= 3.14"]
-
-  # Ollama image in compose.yaml
-  - package-ecosystem: "docker-compose"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      default-days: 14
-    commit-message:
-      prefix: "chore(deps)"

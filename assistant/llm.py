@@ -123,36 +123,6 @@ def build_messages(ctx: IncidentContext, nonce: str) -> list[dict]:
     ]
 
 
-class OllamaClient:
-    def __init__(self, client: httpx.Client, url: str, model: str, timeout: float = 300):
-        self._client = client
-        self._url = url.rstrip("/")
-        self._model = model
-        self._timeout = timeout
-
-    def chat(self, messages: list[dict], schema: dict) -> str:
-        response = self._client.post(
-            f"{self._url}/api/chat",
-            json={
-                "model": self._model,
-                "messages": messages,
-                "stream": False,
-                "think": False,
-                "format": schema,
-                "options": {"temperature": 0},
-            },
-            timeout=self._timeout,
-        )
-        response.raise_for_status()
-        try:
-            content = response.json()["message"]["content"]
-        except (KeyError, TypeError, ValueError) as error:
-            raise _BadResponse from error
-        if not isinstance(content, str):
-            raise _BadResponse
-        return content
-
-
 class BedrockClient:
     def __init__(
         self, client: httpx.Client, region: str, model: str, token: str, timeout: float = 60

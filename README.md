@@ -5,7 +5,7 @@
 [![CodeQL](https://github.com/PhilippKlinger/vps-incident-assistant/actions/workflows/codeql.yml/badge.svg)](https://github.com/PhilippKlinger/vps-incident-assistant/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/PhilippKlinger/vps-incident-assistant/badge)](https://scorecard.dev/viewer/?uri=github.com/PhilippKlinger/vps-incident-assistant)
 
-Incident assistant for the VPS platform: turns Uptime Kuma alerts into GitHub issues with rule-based triage and a checked local LLM analysis.
+Incident assistant for the VPS platform: turns Uptime Kuma alerts into GitHub issues with rule-based triage and a checked LLM analysis.
 
 When a service goes down, the alert alone does not say what changed or where to look. The assistant collects the facts around the alert, files one issue per incident and adds a suspected cause and a matching runbook section, both backed by evidence. Rules decide category and severity; the LLM only suggests the cause, and the code checks every claim before it is published. A human decides what to do; the assistant only reads, and writes issues and Telegram messages.
 
@@ -18,7 +18,7 @@ sequenceDiagram
     participant K as Uptime Kuma
     participant A as Assistant
     participant G as GitHub API
-    participant O as Ollama
+    participant O as Amazon Bedrock
     participant T as Telegram
     K->>T: alert (unchanged, direct)
     K->>A: webhook down/up (internal network, secret header)
@@ -33,7 +33,7 @@ sequenceDiagram
     A->>T: one message: cause, runbook, issue link
 ```
 
-**Rules vs. LLM.** Rules produce category and severity. The LLM never does; it only fills a fixed schema: `suspected_change`, `change_reasoning`, `runbook`, `runbook_reasoning`, `summary`, `evidence` and `confidence`. Runs use `temperature: 0`, thinking off, the schema as `format`, a 300 s timeout and one retry.
+**Rules vs. LLM.** Rules produce category and severity. The LLM never does; it only fills a fixed schema: `suspected_change`, `change_reasoning`, `runbook`, `runbook_reasoning`, `summary`, `evidence` and `confidence`. Runs use `temperature: 0`, a forced tool call that carries the schema, a 60 s timeout and one retry.
 
 **Facts.** Every fact gets an ID (`F1`, `F2` ...), every change an ID (`C1` ... with repo and SHA), every runbook section an anchor (for example `vps-edge#upstream-502`).
 
@@ -41,7 +41,7 @@ sequenceDiagram
 - Deploy context: per repo the commits of the last 72 hours (at most 10), changed files, shortened diffs (2000 characters per change, 12000 in total) and the latest runs of the deploy workflow.
 - Runbook: the `## Troubleshooting` section in the READMEs of `vps-edge`, `vps-monitoring` and `videoflix-deploy`.
 
-**Evidence is mandatory.** The answer is discarded unless it passes the check: valid schema, and a change ID, runbook anchor and evidence IDs that exist in the supplied lists, with at least one piece of evidence. On a failed check, a timeout or an unreachable Ollama the assistant retries once and then comments that the analysis is not available; the rule result stays. The issue always labels the analysis a "suspected cause".
+**Evidence is mandatory.** The answer is discarded unless it passes the check: valid schema, and a change ID, runbook anchor and evidence IDs that exist in the supplied lists, with at least one piece of evidence. On a failed check, a timeout or an unreachable model API the assistant retries once and then comments that the analysis is not available; the rule result stays. The issue always labels the analysis a "suspected cause".
 
 **Lifecycle.**
 
@@ -57,15 +57,15 @@ Issue and Telegram text is English.
 
 | Risk | Measure |
 |---|---|
-| Prompt injection through changelogs (Dependabot), PR texts, foreign error messages | Model without tools; foreign text in delimited, shortened blocks marked as untrusted; hard check of the answer |
+| Prompt injection through changelogs (Dependabot), PR texts, foreign error messages | No tool that acts: the only tool is the forced output schema, nothing is executed; foreign text in delimited, shortened blocks marked as untrusted; hard check of the answer |
 | Output as attack path (links, `@` mentions, HTML in issues) | Issue built from a fixed template; free text has links, `@`, Markdown images and HTML neutralized |
 | Forged webhook | Internal Docker network only, no Caddy route, no published port; shared secret in the `X-Webhook-Secret` header, compared in constant time |
 | Too many permissions | Two fine-grained tokens: read-only on the five source repos, and Issues write on the issue repo only. Fine-grained tokens give all selected repos the same rights, hence two |
 | Secrets | Only in `.env` on the server (gitignored), `.env.example` in the repo, gitleaks in CI |
-| Data leaving the host | Only public data in the prompt; no private repos, no logs, no Docker socket; Ollama has no internet access |
+| Data leaving the host | Only public data in the prompt; no private repos, no logs, no Docker socket; the model is reached over HTTPS only (see Data protection) |
 | Residual risk | A valid but wrong suspicion is possible. It is labelled as such; the decision stays with a human |
 
-Container hardening: images pinned by digest, `cap_drop: [ALL]`, `no-new-privileges`, non-root users, read-only root filesystem for the assistant, journald logging, no published ports. CI starts the stack and checks these properties, scans the images with Trivy (exceptions for the pinned Ollama image are listed with reason and expiry in `.trivyignore.yaml`), audits the dependencies, runs CodeQL, Scorecard and gitleaks, and attests provenance and SBOM of the published image.
+Container hardening: images pinned by digest, `cap_drop: [ALL]`, `no-new-privileges`, non-root users, read-only root filesystem for the assistant, journald logging, no published ports. CI starts the stack and checks these properties, scans the image with Trivy, audits the dependencies, runs CodeQL, Scorecard and gitleaks, and attests provenance and SBOM of the published image.
 
 ## Configuration
 
@@ -79,8 +79,9 @@ Container hardening: images pinned by digest, `cap_drop: [ALL]`, `no-new-privile
 | `ISSUE_REPO` | yes | Repository the incident issues are created in |
 | `TELEGRAM_BOT_TOKEN` | yes | Bot token for notifications |
 | `TELEGRAM_CHAT_ID` | yes | Chat that receives the notifications |
-| `OLLAMA_URL` | no | Ollama base URL, default `http://ollama:11434` |
-| `OLLAMA_MODEL` | no | Model name, default `qwen3:8b` (also used by `ollama-pull`) |
+| `BEDROCK_REGION` | yes | AWS region of the Bedrock runtime endpoint, `eu-north-1` |
+| `BEDROCK_MODEL` | yes | Bedrock inference profile ID of the model (`eu.` prefix) |
+| `AWS_BEARER_TOKEN_BEDROCK` | yes | Long-term Bedrock API key, sent as bearer token |
 | `ASSISTANT_IMAGE` | no | Overrides the image digest pinned in `compose.yaml` |
 
 The assistant exits at startup if a required variable is missing.
@@ -113,18 +114,12 @@ Projects with `llm = true`: Videoflix and the status page. Portfolio, Neuro Chec
 The stack lives in `/srv/incident` next to the other stacks. `compose.yaml` pins the assistant image by digest; `.env` may override `ASSISTANT_IMAGE`.
 
 1. Update `vps-monitoring` first (`docker compose up -d`). It creates the internal network `incident`, which this stack joins as an external network.
-2. Create `/srv/incident` and put `compose.yaml` and `.env` there (`chmod 600 .env`). Create the model directory; Ollama runs as UID 10002 (not the admin user) with the bind mount `./models:/models`:
+2. Create `/srv/incident` and put `compose.yaml` and `.env` there (`chmod 600 .env`).
+3. Pull the image:
 
    ```bash
    cd /srv/incident
-   sudo install -d -o 10002 -g 10002 models
-   ```
-
-3. Pull the images and download the model once. Only the one-off `ollama-pull` service (profile `setup`) has internet access; the running Ollama never does.
-
-   ```bash
    docker compose pull
-   docker compose --profile setup run --rm ollama-pull
    ```
 
 4. Start the stack and check that the assistant is healthy:
@@ -135,11 +130,14 @@ The stack lives in `/srv/incident` next to the other stacks. `compose.yaml` pins
    ```
 
 5. In Uptime Kuma add a webhook notification to `http://incident-assistant:8080/webhook/kuma` with the header `X-Webhook-Secret`, and press *Test*. The assistant log shows `ignored` for the test event. Create the monitor `Statusseite` if it does not exist yet.
-6. Check Ollama's limits: during one run with the configured context of 16384 tokens `docker stats` shows Ollama within 8 GiB and 2 CPUs, and five minutes later the model is unloaded (`docker compose exec ollama ollama ps` is empty).
 
-A new model goes the same way: change `OLLAMA_MODEL` in `.env` and repeat the `ollama-pull` step.
+A new model: change `BEDROCK_MODEL` in `.env` and run `docker compose up -d`.
 
-Resources: the assistant gets 256 MB and 0.5 CPU. Ollama gets `cpus: 2`, `mem_limit: 8g` and a low `cpu_shares`, keeps one model loaded (`OLLAMA_MAX_LOADED_MODELS=1`), handles one request at a time (`OLLAMA_NUM_PARALLEL=1`) with a context of 16384 tokens (`OLLAMA_CONTEXT_LENGTH`, the prompt is sized for it; the KV cache counts towards the memory limit) and unloads the model after 5 minutes (`OLLAMA_KEEP_ALIVE=5m`). If Ollama exceeds the limit, the kernel stops only Ollama.
+Resources: the assistant gets 256 MB and 0.5 CPU.
+
+## Data protection
+
+The analysis runs on Amazon Bedrock in the EU: the `eu.` inference profile in region `eu-north-1`. Only the rule result, the Kuma facts, changes from public repos (without author) and runbook excerpts are sent; no personal data. Model invocation logging is off in the AWS account. According to AWS, Bedrock does not store prompts and answers and does not use them for training ([Data protection](https://docs.aws.amazon.com/bedrock/latest/userguide/data-protection.html)).
 
 ## Limits
 
