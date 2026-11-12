@@ -14,16 +14,35 @@ def _reader(handler) -> GitHubReader:
     )
 
 
-def _commit(sha, when, login="alice"):
+def _commit(sha, when, parents=(), login="alice", files=()):
     return {
         "sha": sha,
+        "parents": [{"sha": p} for p in parents],
         "commit": {
             "message": f"fix: change {sha}\n\nlonger body",
             "committer": {"date": when.strftime("%Y-%m-%dT%H:%M:%SZ")},
             "author": {"name": "Alice A"},
         },
         "author": {"login": login} if login else None,
+        "files": list(files),
     }
+
+
+def _chain_handler(commits, calls):
+    by_sha = {c["sha"]: c for c in commits}
+    head = commits[0]
+
+    def handler(request):
+        calls.append(request.url.path)
+        prefix = "/repos/o/r/commits/"
+        assert request.url.path.startswith(prefix)
+        ref = request.url.path.removeprefix(prefix)
+        commit = head if ref == "main" else by_sha.get(ref)
+        if commit is None:
+            return httpx.Response(404)
+        return httpx.Response(200, json=commit)
+
+    return handler
 
 
 def test_truncate_patch_line_boundary():
@@ -38,63 +57,80 @@ def test_truncate_patch_line_boundary():
     assert truncate_patch("short", 100) == "short"
 
 
-def test_recent_changes_skips_merge_commits():
-    merge = _commit("merge", NOW - timedelta(hours=1)) | {"parents": [{"sha": "a"}, {"sha": "b"}]}
-    single = _commit("single", NOW - timedelta(hours=2)) | {"parents": [{"sha": "a"}]}
-    details = []
-
-    def handler(request):
-        if request.url.path == "/repos/o/r/commits":
-            return httpx.Response(200, json=[merge, single])
-        details.append(request.url.path)
-        return httpx.Response(200, json={"files": []})
-
-    changes = _reader(handler).recent_changes("o/r", NOW - timedelta(hours=72))
-
-    assert [c.sha for c in changes] == ["single"]
-    assert details == ["/repos/o/r/commits/single"]
-
-
-def test_recent_changes_respects_limit_and_since():
-    since = NOW - timedelta(hours=72)
-    commits = [_commit(f"s{i:02d}", NOW - timedelta(hours=i)) for i in range(10)]
-    commits += [
-        _commit("old1", since - timedelta(hours=1)),
-        _commit("old2", since - timedelta(hours=2)),
-    ]
-    commits[1] = _commit("s01", NOW - timedelta(hours=1), login=None)
+def test_recent_changes_lists_merge_commit_not_its_branch():
+    files = [{"filename": "a.txt", "patch": "@@ -1 +1 @@\n-x\n+y"}, {"filename": "b.png"}]
+    merge = _commit("merge", NOW - timedelta(hours=1), parents=["base", "branch2"], files=files)
+    base = _commit("base", NOW - timedelta(hours=30))
+    branch2 = _commit("branch2", NOW - timedelta(hours=40), parents=["base"])
     calls = []
 
-    def handler(request):
-        calls.append(request.url)
-        if request.url.path == "/repos/o/r/commits":
-            assert request.url.params["sha"] == "main"
-            assert request.url.params["per_page"] == "10"
-            return httpx.Response(200, json=commits)
-        return httpx.Response(
-            200,
-            json={
-                "files": [
-                    {"filename": "a.txt", "patch": "@@ -1 +1 @@\n-x\n+y"},
-                    {"filename": "b.png"},
-                ]
-            },
-        )
+    changes = _reader(_chain_handler([merge, base, branch2], calls)).recent_changes(
+        "o/r", NOW - timedelta(hours=72)
+    )
 
-    changes = _reader(handler).recent_changes("o/r", since)
-
-    assert len(changes) == 10
-    assert all(c.merged_at >= since for c in changes)
-    assert [c.merged_at for c in changes] == sorted((c.merged_at for c in changes), reverse=True)
+    assert [c.sha for c in changes] == ["merge", "base"]
     first = changes[0]
-    assert first.sha == "s00"
-    assert first.author == "alice"
-    assert first.title == "fix: change s00"
-    assert first.body == "longer body"
+    assert first.sha == "merge"
+    assert first.merged_at == NOW - timedelta(hours=1)
     assert first.files == ("a.txt", "b.png")
     assert "diff --git a/a.txt b/a.txt" in first.patch
     assert "+y" in first.patch
-    assert changes[1].author == "Alice A"
+    assert first.title == "fix: change merge"
+    assert first.body == "longer body"
+    assert "/repos/o/r/commits/branch2" not in calls
+
+
+def test_recent_changes_stops_at_since_and_limit():
+    since = NOW - timedelta(hours=72)
+    commits = [
+        _commit(f"s{i:02d}", NOW - timedelta(hours=i), parents=[f"s{i + 1:02d}"], login=None)
+        for i in range(9)
+    ]
+    commits += [
+        _commit("old1", since - timedelta(hours=1), parents=["old2"]),
+        _commit("old2", since - timedelta(hours=2), parents=["old3"]),
+    ]
+    commits[8]["parents"] = [{"sha": "old1"}]
+    calls = []
+
+    changes = _reader(_chain_handler(commits, calls)).recent_changes("o/r", since)
+
+    assert [c.sha for c in changes] == [f"s{i:02d}" for i in range(9)]
+    assert changes[0].author == "Alice A"
+    assert calls[0] == "/repos/o/r/commits/main"
+    assert calls[-1] == "/repos/o/r/commits/old1"
+    assert len(calls) == 10
+
+    calls.clear()
+    limited = _reader(_chain_handler(commits, calls)).recent_changes("o/r", since, limit=3)
+
+    assert [c.sha for c in limited] == ["s00", "s01", "s02"]
+    assert len(calls) == 3
+
+
+def test_recent_changes_stops_at_root_commit():
+    tip = _commit("tip", NOW - timedelta(hours=1), parents=["root"])
+    root = _commit("root", NOW - timedelta(hours=2))
+    calls = []
+
+    changes = _reader(_chain_handler([tip, root], calls)).recent_changes(
+        "o/r", NOW - timedelta(hours=72)
+    )
+
+    assert [c.sha for c in changes] == ["tip", "root"]
+    assert len(calls) == 2
+
+
+def test_recent_changes_lists_direct_push():
+    push = _commit("push", NOW - timedelta(hours=1), parents=["base"], files=[{"filename": "x.py"}])
+    base = _commit("base", NOW - timedelta(hours=100))
+
+    changes = _reader(_chain_handler([push, base], [])).recent_changes(
+        "o/r", NOW - timedelta(hours=72)
+    )
+
+    assert [c.sha for c in changes] == ["push"]
+    assert changes[0].files == ("x.py",)
 
 
 def test_rate_limit_raises_unavailable():

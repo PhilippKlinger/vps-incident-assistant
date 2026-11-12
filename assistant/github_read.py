@@ -82,26 +82,32 @@ class GitHubReader:
             raise GitHubUnavailable("GitHub returned an unexpected response") from None
 
     def _recent_changes(self, repo: str, since: datetime, limit: int) -> list[RawChange]:
-        listing = self._get(
-            f"/repos/{repo}/commits",
-            params={"sha": "main", "since": since.isoformat(), "per_page": limit},
-        ).json()
-        # Merge commits repeat the commits of the PR they merge.
-        singles = [c for c in listing if len(c.get("parents", [])) <= 1]
-        dated = [(_parse_time(c["commit"]["committer"]["date"]), c) for c in singles]
-        recent = sorted((d for d in dated if d[0] >= since), key=lambda d: d[0], reverse=True)
-        return [self._change(repo, when, item) for when, item in recent[:limit]]
+        # Walk the first-parent chain of main: a merge commit is one merged PR, its
+        # committer date is when the work landed. The list endpoint has no first-parent
+        # option and filters by branch commit dates, so each commit is fetched by sha.
+        changes = []
+        ref = "main"
+        while len(changes) < limit:
+            detail = self._get(f"/repos/{repo}/commits/{ref}").json()
+            when = _parse_time(detail["commit"]["committer"]["date"])
+            if when < since:
+                break
+            changes.append(self._change(repo, when, detail))
+            parents = detail.get("parents", [])
+            if not parents:
+                break
+            ref = parents[0]["sha"]
+        return changes
 
-    def _change(self, repo: str, when: datetime, item: dict) -> RawChange:
-        sha = item["sha"]
-        detail = self._get(f"/repos/{repo}/commits/{sha}").json()
+    def _change(self, repo: str, when: datetime, detail: dict) -> RawChange:
+        sha = detail["sha"]
         files = detail.get("files", [])
         patch = "\n".join(
             f"diff --git a/{f['filename']} b/{f['filename']}\n{f.get('patch', '')}".rstrip("\n")
             for f in files
         )
-        head, _, body = item["commit"]["message"].partition("\n")
-        author = (item.get("author") or {}).get("login") or item["commit"]["author"]["name"]
+        head, _, body = detail["commit"]["message"].partition("\n")
+        author = (detail.get("author") or {}).get("login") or detail["commit"]["author"]["name"]
         return RawChange(
             repo=repo,
             sha=sha,
