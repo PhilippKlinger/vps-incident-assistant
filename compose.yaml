@@ -10,7 +10,7 @@ x-logging: &logging
 services:
   assistant:
     # Pinned build from main; .env may override ASSISTANT_IMAGE (CI sets it to its own build or a placeholder digest).
-    image: ${ASSISTANT_IMAGE:-ghcr.io/philippklinger/vps-incident-assistant@sha256:fb1c9a99e5ac266e15234a2db000f3ecaa3803dc044ff3711490c8cc87ddeb20}
+    image: ${ASSISTANT_IMAGE:-ghcr.io/philippklinger/vps-incident-assistant@sha256:be019688d2a10273315507812c97d9832b0c28f3b613b65d581668ed56e60da1}
     env_file: [.env]
     # The service writes nothing to disk; /tmp only for libraries that expect it
     read_only: true
