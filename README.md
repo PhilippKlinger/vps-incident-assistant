@@ -33,7 +33,7 @@ sequenceDiagram
     A->>T: one message: cause, runbook, issue link
 ```
 
-**Rules vs. LLM.** Rules produce category and severity. The LLM never does; it only fills a fixed schema: `suspected_change`, `change_reasoning`, `runbook`, `runbook_reasoning`, `summary`, `evidence` and `confidence`. Runs use `temperature: 0`, a forced tool call that carries the schema, a 60 s timeout and one retry.
+**Rules vs. LLM.** Rules produce category and severity. The LLM never does; it only fills a fixed schema: `suspected_change`, `change_reasoning`, `runbook`, `runbook_reasoning`, `summary`, `evidence` and `confidence`. Runs use `temperature: 0`, a forced tool call that carries the schema, a 60 s timeout and one retry; after a rejected answer the retry adds a fixed note about the schema and the length limits.
 
 **Facts.** Every fact gets an ID (`F1`, `F2` ...), every change an ID (`C1` ... with repo and SHA), every runbook section an anchor (for example `vps-edge#upstream-502`).
 

@@ -11,6 +11,7 @@ from assistant.llm import (
     FILE_NAME_MAX,
     FILES_BUDGET,
     FILES_IN_PROMPT,
+    RETRY_NOTE,
     AnalysisRejected,
     BedrockClient,
     ModelReply,
@@ -209,6 +210,49 @@ def test_analyze_recovers_on_second_attempt():
     answers = iter([{"foo": 1}, json.loads(_answer())])
     client = _client(lambda r: _converse(next(answers)))
     assert isinstance(analyze(_ctx(), client), Analysis)
+
+
+def _user_texts(bodies):
+    return [body["messages"][0]["content"][0]["text"] for body in bodies]
+
+
+def test_analyze_retry_after_rejection_adds_the_note():
+    bodies = []
+    answers = iter([{"foo": 1}, json.loads(_answer())])
+
+    def handler(request):
+        bodies.append(json.loads(request.content))
+        return _converse(next(answers))
+
+    assert isinstance(analyze(_ctx(), _client(handler)), Analysis)
+
+    first, second = _user_texts(bodies)
+    assert not first.endswith(RETRY_NOTE)
+    assert second.endswith(RETRY_NOTE)
+
+
+def test_analyze_retry_after_timeout_keeps_the_request():
+    bodies = []
+
+    def handler(request):
+        bodies.append(json.loads(request.content))
+        if len(bodies) == 1:
+            raise httpx.ReadTimeout("slow", request=request)
+        return _converse()
+
+    assert isinstance(analyze(_ctx(), _client(handler)), Analysis)
+
+    first, second = _user_texts(bodies)
+    assert first == second
+    assert RETRY_NOTE not in first
+
+
+def test_schema_states_the_length_targets():
+    props = analysis_schema(_ctx())["properties"]
+
+    for name, limit in (("change_reasoning", 400), ("runbook_reasoning", 300), ("summary", 300)):
+        assert "characters" in props[name]["description"]
+        assert props[name]["maxLength"] == limit
 
 
 def test_analyze_timeout_unavailable():
