@@ -115,7 +115,7 @@ def run_case(
     )
 
 
-def _p95(values: list[float]) -> float:
+def p95(values: list[float]) -> float:
     # Nearest rank.
     ordered = sorted(values)
     return ordered[max(0, math.ceil(0.95 * len(ordered)) - 1)] if ordered else 0.0
@@ -148,7 +148,7 @@ def candidate_summary(cases: list[Case], runs: list[dict]) -> dict:
         "schema_valid_first_pct": 100 * outcomes.count("valid") / responded if responded else 0.0,
         "first_attempt_timeouts": timeouts,
         "first_attempt_unreachable": unreachable,
-        "latency_p95_s": _p95([run["latency_s"] for run in runs]),
+        "latency_p95_s": p95([run["latency_s"] for run in runs]),
         "over_production_timeout": sum(
             run["latency_s"] > PRODUCTION_TIMEOUT_S or run["unavailable"] == "model timed out"
             for run in runs
