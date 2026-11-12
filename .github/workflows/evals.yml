@@ -56,7 +56,7 @@ jobs:
     name: Run ${{ matrix.model }}
     needs: matrix
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     environment: bedrock-evals
     strategy:
       fail-fast: false
@@ -64,8 +64,6 @@ jobs:
         model: ${{ fromJSON(needs.matrix.outputs.models) }}
     env:
       MODEL: ${{ matrix.model }}
-      AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
-      BEDROCK_REGION: ${{ vars.BEDROCK_REGION }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -92,8 +90,10 @@ jobs:
       # The step limit stays below the job limit, so the upload below still runs.
       # The input only reaches the shell as an environment variable, never as a template.
       - name: Run cases
-        timeout-minutes: 55
+        timeout-minutes: 75
         env:
+          AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
+          BEDROCK_REGION: ${{ vars.BEDROCK_REGION }}
           SLUG: ${{ steps.name.outputs.slug }}
           ONLY: ${{ inputs.only }}
         run: |
