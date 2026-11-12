@@ -9,7 +9,7 @@ Incident assistant for the VPS platform: turns Uptime Kuma alerts into GitHub is
 
 When a service goes down, the alert alone does not say what changed or where to look. The assistant collects the facts around the alert, files one issue per incident and adds a suspected cause and a matching runbook section, both backed by evidence. Rules decide category and severity; the LLM only suggests the cause, and the code checks every claim before it is published. A human decides what to do; the assistant only reads, and writes issues and Telegram messages.
 
-The LLM is switched off (`llm.enabled = false` in `config.toml`) until the evaluation (OPS-03) shows that it beats simple baselines. Until then the issues contain the rule result only.
+The LLM is switched off (`llm.enabled = false` in `config.toml`), so the issues contain the rule result only. In the evaluation (OPS-03, [report](evals/reports/2026-11-12-sonnet-4-6.md)) Claude Sonnet 4.6 on Amazon Bedrock met six of seven thresholds against 30 frozen incidents, but it still suggests a runbook section where none applies too often (33 % correct `none` instead of at least 80 %).
 
 ## How it works
 
