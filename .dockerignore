@@ -21,14 +21,10 @@ tests
 requirements-dev.txt
 pyproject.toml
 
-# Ollama models (bind mount on the server, several GB)
-models
-
 # Container and documentation files themselves
 Dockerfile
 .dockerignore
 compose.yaml
-.trivyignore.yaml
 README.md
 
 # Editor settings

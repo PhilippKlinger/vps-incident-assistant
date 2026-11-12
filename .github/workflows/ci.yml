@@ -96,7 +96,7 @@ jobs:
           cp .env.example .env
 
       - name: Validate compose.yaml
-        run: docker compose --profile setup config --quiet
+        run: docker compose config --quiet
 
       - name: Lint workflows (actionlint)
         run: docker run --rm -v "${PWD}:/repo" -w /repo "${ACTIONLINT_IMAGE}" -color
@@ -145,14 +145,12 @@ jobs:
         run: docker build --tag "${ASSISTANT_IMAGE}" .
 
       # Dummy values for every empty variable: the assistant refuses to start without them.
-      # The model is not pulled; the assistant runs without the LLM.
-      - name: Start stack without model
+      - name: Start stack
         run: |
           set -Eeuo pipefail
           sed -E 's/^([A-Z_]+)=$/\1=ci-dummy/' .env.example > .env
-          sudo install -d -o 10002 -g 10002 models
           docker network create --internal incident
-          docker compose up -d assistant ollama
+          docker compose up -d assistant
 
       - name: No port is published
         run: |
@@ -179,39 +177,6 @@ jobs:
                 ;;
             esac
           done
-
-      - name: Ollama runs as its own non-root user
-        run: |
-          set -Eeuo pipefail
-          id="$(docker compose ps -q ollama)"
-          test -n "${id}"
-          user="$(docker inspect --format '{{.Config.User}}' "${id}")"
-          echo "ollama user: ${user:-<empty>}"
-          test "${user}" = "10002:10002"
-
-      # Ollama has no route outside and cannot reach Kuma: only the internal network "llm".
-      - name: Ollama is only in the internal network llm
-        run: |
-          set -Eeuo pipefail
-          id="$(docker compose ps -q ollama)"
-          test -n "${id}"
-          networks="$(docker inspect --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' "${id}")"
-          echo "Networks: ${networks}"
-          test "${networks}" = "incident_llm "
-          internal="$(docker network inspect --format '{{.Internal}}' incident_llm)"
-          echo "incident_llm internal: ${internal}"
-          test "${internal}" = "true"
-
-      - name: Ollama cloud features are disabled
-        run: |
-          set -Eeuo pipefail
-          id="$(docker compose ps -q ollama)"
-          test -n "${id}"
-          env_list="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${id}")"
-          if ! grep -qx 'OLLAMA_NO_CLOUD=true' <<< "${env_list}"; then
-            echo "::error::Ollama cloud features are not disabled"
-            exit 1
-          fi
 
       - name: No Docker socket mounted
         run: |
@@ -260,20 +225,6 @@ jobs:
           done
           echo "::error::Assistant is not healthy after 150 seconds (status: ${status})"
           exit 1
-
-      # restart: unless-stopped would hide a crash loop behind a listed container.
-      # The request proves that Ollama runs without root and answers the assistant over "llm".
-      - name: Ollama runs and answers the assistant
-        run: |
-          set -Eeuo pipefail
-          sleep 10
-          id="$(docker compose ps -aq ollama)"
-          test -n "${id}"
-          state="$(docker inspect --format '{{.State.Running}} {{.RestartCount}}' "${id}")"
-          echo "Running, restarts: ${state}"
-          test "${state}" = "true 0"
-          docker compose exec -T assistant python -c \
-            "import urllib.request; print(urllib.request.urlopen('http://ollama:11434/api/version', timeout=5).read().decode())"
 
       # Same path as Kuma: from a container in the network "incident" to the alias.
       - name: Webhook without secret is rejected
@@ -324,35 +275,11 @@ jobs:
         run: docker build --tag "${ASSISTANT_IMAGE}" .
 
       # Official Trivy image pinned by digest instead of a third-party action.
-      # High and critical findings that already have a fix count. Both scans always run,
-      # the last step fails the job, so one run shows the findings of both images.
+      # High and critical findings that already have a fix count.
       - name: Scan built image with Trivy
-        id: scan-assistant
-        continue-on-error: true
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "${TRIVY_IMAGE}" \
             image --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "${ASSISTANT_IMAGE}"
-
-      # Both Ollama services use the same pinned image; Trivy pulls it from the registry.
-      # Accepted upstream risks with reason and expiry date: .trivyignore.yaml (Ollama only).
-      - name: Scan pinned Ollama image with Trivy
-        id: scan-ollama
-        continue-on-error: true
-        run: |
-          set -Eeuo pipefail
-          image="$(sed -n 's/^ *image: *\(ollama\/ollama:.*\)$/\1/p' compose.yaml | sort -u)"
-          echo "Image: ${image}"
-          test -n "${image}"
-          test "$(wc -l <<< "${image}")" = "1"
-          docker run --rm -v "${PWD}/.trivyignore.yaml:/trivyignore.yaml:ro" "${TRIVY_IMAGE}" \
-            image --no-progress --severity HIGH,CRITICAL --ignore-unfixed \
-            --ignorefile /trivyignore.yaml --exit-code 1 "${image}"
-
-      - name: Fail on findings
-        if: steps.scan-assistant.outcome != 'success' || steps.scan-ollama.outcome != 'success'
-        run: |
-          echo "::error::Trivy found high or critical vulnerabilities with a fix (see the scan steps above)"
-          exit 1
 
   image:
     name: Build image
