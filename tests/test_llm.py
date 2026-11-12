@@ -120,16 +120,45 @@ def test_request_payload():
         seen.append(request)
         return httpx.Response(200, json={"message": {"content": _answer()}})
 
-    out = _client(handler).chat([{"role": "user", "content": "hi"}], analysis_schema())
+    schema = analysis_schema(_ctx())
+    out = _client(handler).chat([{"role": "user", "content": "hi"}], schema)
     body = json.loads(seen[0].content)
     assert seen[0].url.path == "/api/chat"
     assert body["think"] is False
     assert body["stream"] is False
-    assert body["format"] == analysis_schema()
+    assert body["format"] == schema
     assert body["options"] == {"temperature": 0}
     assert body["model"] == "m"
     assert seen[0].extensions["timeout"]["read"] == 300
     assert out == _answer()
+
+
+def test_schema_allows_only_the_supplied_ids():
+    props = analysis_schema(_ctx())["properties"]
+
+    assert props["suspected_change"]["enum"] == ["C1", "none"]
+    assert props["runbook"]["enum"] == ["o/a#502", "none"]
+    # Evidence is a bare fact or change id, never text and never a runbook anchor.
+    assert props["evidence"]["items"]["enum"] == ["F1", "C1"]
+
+
+def test_schema_asks_for_the_reasoning_before_the_id():
+    order = list(analysis_schema(_ctx())["properties"])
+
+    assert order.index("change_reasoning") < order.index("suspected_change")
+    assert order.index("runbook_reasoning") < order.index("runbook")
+
+
+def test_analyze_sends_the_schema_of_its_context():
+    seen = []
+
+    def handler(request):
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json={"message": {"content": _answer()}})
+
+    analyze(_ctx(), _client(handler))
+
+    assert seen[0]["format"] == analysis_schema(_ctx())
 
 
 def test_analyze_returns_valid_analysis():

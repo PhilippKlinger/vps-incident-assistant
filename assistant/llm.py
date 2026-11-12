@@ -38,8 +38,15 @@ class Unavailable:
     reason: str
 
 
-def analysis_schema() -> dict:
-    return Analysis.model_json_schema()
+def analysis_schema(ctx: IncidentContext) -> dict:
+    # Ollama constrains the output to the schema, so the ids of this incident are fixed
+    # here; validate_analysis still checks them.
+    schema = Analysis.model_json_schema()
+    props = schema["properties"]
+    props["suspected_change"]["enum"] = [c.id for c in ctx.changes] + ["none"]
+    props["runbook"]["enum"] = [a.id for a in ctx.anchors] + ["none"]
+    props["evidence"]["items"]["enum"] = [f.id for f in ctx.facts] + [c.id for c in ctx.changes]
+    return schema
 
 
 def _untrusted(text: str, nonce: str) -> str:
@@ -165,7 +172,7 @@ def analyze(
 ) -> Analysis | Unavailable:
     # Built outside the error handling so a bug here is not reported as a model outage.
     messages = build_messages(ctx, secrets.token_hex(8))
-    schema = analysis_schema()
+    schema = analysis_schema(ctx)
     reason = "model unreachable"
     for _ in range(attempts):
         try:
