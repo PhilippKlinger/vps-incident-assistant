@@ -1,7 +1,5 @@
 from dataclasses import replace
 
-import pytest
-
 from evals.report import build_report, render_markdown
 from evals.runner import candidate_summary
 from tests.evals_support import load_fixture_set
@@ -21,8 +19,7 @@ def _cases():
 
 
 def _build(cases, candidates):
-    # Existing tests judge latency on a VPS file taken from the candidate's own runs.
-    return build_report(cases, candidates, {c["model"]: c for c in candidates})
+    return build_report(cases, candidates)
 
 
 def _run(case_id, answer, *, valid=True, latency=10.0, unsupported=()):
@@ -32,8 +29,8 @@ def _run(case_id, answer, *, valid=True, latency=10.0, unsupported=()):
         "first_attempt": "valid" if valid else "schema",
         "unavailable": None if answer else "model unreachable",
         "latency_s": latency,
-        "cpu_s": 20.0,
-        "ram_peak_mib": 2048.0,
+        "input_tokens": 1000,
+        "output_tokens": 200,
         "unsupported": list(unsupported),
     }
 
@@ -106,7 +103,7 @@ def test_unsupported_statement_and_slow_latency_fail():
     text = render_markdown(_build(cases, [_candidate(cases, "slow:1b", runs)]))
 
     assert "FAIL: unsupported statements 1 (allowed 0)" in text
-    assert "FAIL: latency p95 400.0 s on the VPS (must stay under 300 s)" in text
+    assert "FAIL: latency p95 400.0 s (must stay under 300 s)" in text
     assert "FAIL: valid schema first try 50.0 %" in text
 
 
@@ -117,9 +114,10 @@ def test_table_has_baseline_and_candidate_columns_with_one_decimal():
 
     header = "| Metric | Baseline: latest change | Baseline: keyword | good:1b | bad:1b |"
     assert header in text
-    assert "| Latency p95 (GitHub runner) | n/a | n/a | 10.0 s | 10.0 s |" in text
-    assert "| Mean CPU | n/a | n/a | 20.0 s | 20.0 s |" in text
-    assert "| Max RAM | n/a | n/a | 2048.0 MiB | 2048.0 MiB |" in text
+    assert "| Latency p95 | n/a | n/a | 10.0 s | 10.0 s |" in text
+    assert "| Tokens in / out, total | n/a | n/a | 2000 / 400 | 2000 / 400 |" in text
+    assert "| Tokens in / out, median per case | n/a | n/a | 1000 / 200 | 1000 / 200 |" in text
+    assert "CPU" not in text
     assert "| Change hit | 0.0 % (0/1) |" in text
 
 
@@ -135,22 +133,22 @@ def test_schema_denominator_and_first_attempt_failures_are_reported():
 
 def test_cases_over_the_production_timeout_are_shown():
     cases = _cases()
-    good = _good(cases, latency=301.0)
+    good = _good(cases, latency=61.0)
 
     text = render_markdown(_build(cases, [good]))
 
-    assert "| Cases over the production timeout (300 s) | n/a | n/a | 1 |" in text
+    assert "| Cases over the production timeout (60 s) | n/a | n/a | 1 |" in text
 
 
-def test_provenance_is_shown_and_may_be_missing():
+def test_region_is_shown_and_may_be_missing():
     cases = _cases()
-    known = {**_good(cases, "a:1b"), "model_digest": "abc123", "ollama_version": "0.40.12"}
+    known = {**_good(cases, "a:1b"), "region": "eu-north-1"}
     unknown = _good(cases, "b:1b")
 
     text = render_markdown(_build(cases, [known, unknown]))
 
-    assert "| Model digest | n/a | n/a | abc123 | n/a |" in text
-    assert "| Ollama version | n/a | n/a | 0.40.12 | n/a |" in text
+    assert "| Region | n/a | n/a | eu-north-1 | n/a |" in text
+    assert "Ollama" not in text
 
 
 def test_rule_accuracy_and_examples_are_listed():
@@ -202,83 +200,16 @@ def test_thresholds_use_unrounded_values():
     assert check["passed"] is True
 
 
-def _vps_file(model, latency):
-    runs = [
-        _run("app-01-cors", None, latency=latency),
-        _run("none-01-quiet", None, latency=latency),
-    ]
-    return {"model": model, "runs": runs}
-
-
-def test_without_a_vps_run_the_latency_check_is_provisional_and_the_model_cannot_pass():
+def test_latency_check_uses_the_run_latency():
     cases = _cases()
 
-    report = build_report(cases, [_good(cases)])
-    text = render_markdown(report)
+    fast = build_report(cases, [_good(cases, latency=120.0)])
+    slow = build_report(cases, [_good(cases, latency=301.0)])
 
-    assert report["passing"] == []
-    assert "PENDING: latency p95 10.0 s on the GitHub runner, provisional" in text
-    assert "latency check is pending the VPS run for: good:1b" in report["verdict"]
-    assert "Passing" not in report["verdict"]
-    assert "| Latency p95 (VPS) | n/a | n/a | n/a |" in text
-
-
-def test_a_vps_run_decides_the_latency_check_and_both_values_are_shown():
-    cases = _cases()
-    good = _good(cases, latency=10.0)
-
-    report = build_report(cases, [good], {"good:1b": _vps_file("good:1b", 120.0)})
-    text = render_markdown(report)
-
-    assert report["passing"] == ["good:1b"]
-    assert (
-        "PASS: latency p95 120.0 s on the VPS (must stay under 300 s); GitHub runner 10.0 s" in text
-    )
-    assert "| Latency p95 (VPS) | n/a | n/a | 120.0 s |" in text
-    assert "pending" not in report["verdict"]
-
-
-def test_a_slow_vps_run_fails_a_candidate_that_was_fast_on_the_runner():
-    cases = _cases()
-
-    report = build_report(cases, [_good(cases)], {"good:1b": _vps_file("good:1b", 301.0)})
-
-    assert report["passing"] == []
-    assert "FAIL: latency p95 301.0 s on the VPS" in render_markdown(report)
-    assert report["verdict"] == NO_PASS
-
-
-def test_the_vps_file_never_feeds_quality_metrics():
-    cases = _cases()
-    good = _good(cases)
-    vps = {"model": "good:1b", "runs": [_run("app-01-cors", None, latency=5.0)]}
-
-    report = build_report(cases, [good], {"good:1b": vps})
-
-    assert report["candidates"][0]["metrics"] == good["metrics"]
-    assert report["candidates"][0]["schema_valid_first_pct"] == good["schema_valid_first_pct"]
-    assert report["passing"] == ["good:1b"]
-
-
-def test_verdict_lists_passing_and_pending_models_together():
-    cases = _cases()
-    runs = [_good(cases, "a:1b"), _good(cases, "b:1b")]
-
-    report = build_report(cases, runs, {"a:1b": _vps_file("a:1b", 100.0)})
-
-    assert report["passing"] == ["a:1b"]
-    assert report["verdict"].startswith("Passing: a:1b")
-    assert "latency check is pending the VPS run for: b:1b" in report["verdict"]
-
-
-def test_a_latency_run_for_an_unknown_model_or_without_cases_is_rejected():
-    cases = _cases()
-    good = _good(cases)
-
-    with pytest.raises(SystemExit, match="no candidate run for: ghost:1b"):
-        build_report(cases, [good], {"ghost:1b": _vps_file("ghost:1b", 1.0)})
-    with pytest.raises(SystemExit, match="has no cases"):
-        build_report(cases, [good], {"good:1b": {"model": "good:1b", "runs": []}})
+    assert fast["passing"] == ["good:1b"]
+    assert "PASS: latency p95 120.0 s (must stay under 300 s)" in render_markdown(fast)
+    assert slow["passing"] == []
+    assert slow["verdict"] == NO_PASS
 
 
 def test_every_metric_shows_k_over_n_and_json_carries_k_and_n():

@@ -9,14 +9,13 @@ import httpx
 
 from assistant.config import load_config
 from assistant.github_read import GitHubReader, GitHubUnavailable, make_client
-from assistant.llm import OllamaClient
+from assistant.llm import BedrockClient
 from evals.baselines import keyword_match, latest_change
 from evals.cases import Case, HistoryStore, load_cases
 from evals.check import check_set
 from evals.freeze import freeze
-from evals.meter import DockerMeter, NullMeter
 from evals.report import build_report, render_markdown
-from evals.runner import PRODUCTION_TIMEOUT_S, describe_run, fetch_provenance, run_candidate
+from evals.runner import PRODUCTION_TIMEOUT_S, describe_run, run_candidate
 from evals.scoring import rule_accuracy, score, summarize
 
 HERE = Path(__file__).parent
@@ -73,6 +72,10 @@ def _run_problem(runs: list[dict]) -> str | None:
 def _run(args: argparse.Namespace) -> int:
     if not args.model or not args.out:
         raise SystemExit("run needs --model and --out")
+    region = os.environ.get("BEDROCK_REGION")
+    token = os.environ.get("AWS_BEARER_TOKEN_BEDROCK")
+    if not region or not token:
+        raise SystemExit("run needs BEDROCK_REGION and AWS_BEARER_TOKEN_BEDROCK in the environment")
     _, cases = _load(args)
     if args.only:
         wanted = args.only.split(",")
@@ -80,18 +83,14 @@ def _run(args: argparse.Namespace) -> int:
         if unknown:
             raise SystemExit(f"Unknown case ids: {', '.join(unknown)}")
         cases = [case for case in cases if case.id in wanted]
-    client = _client()
-    ollama = OllamaClient(client, args.ollama_url, args.model, args.timeout)
-    provenance = fetch_provenance(client, args.ollama_url, args.model)
-    meter = DockerMeter(args.container) if args.container else NullMeter()
+    llm = BedrockClient(_client(), region, args.model, token, args.timeout)
     result = run_candidate(
         cases,
-        ollama,
-        meter,
+        llm,
         args.model,
         out=args.out,
         on_case=lambda r: print(describe_run(r)),
-        provenance=provenance,
+        provenance={"region": region},
     )
     print(f"{args.model}: {len(cases)} cases, results in {args.out}")
     problem = _run_problem(result["runs"])
@@ -100,25 +99,12 @@ def _run(args: argparse.Namespace) -> int:
     return 1 if problem else 0
 
 
-def _latency_runs(specs: list[str]) -> dict[str, dict]:
-    found = {}
-    for spec in specs:
-        model, sep, path = spec.rpartition("=")
-        if not sep or not model or not path:
-            raise SystemExit(f"--latency-run expects MODEL=FILE, got: {spec}")
-        try:
-            found[model] = json.loads(Path(path).read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
-            raise SystemExit(f"Cannot read latency run {path}: {type(exc).__name__}") from None
-    return found
-
-
 def _report(args: argparse.Namespace) -> int:
     if not args.runs or not args.out_dir:
         raise SystemExit("report needs --runs and --out-dir")
     _, cases = _load(args)
     runs = [json.loads(path.read_text(encoding="utf-8")) for path in args.runs]
-    report = build_report(cases, runs, _latency_runs(args.latency_run))
+    report = build_report(cases, runs)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     (args.out_dir / "report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     (args.out_dir / "report.md").write_text(render_markdown(report), encoding="utf-8")
@@ -128,9 +114,7 @@ def _report(args: argparse.Namespace) -> int:
 
 def _candidates(args: argparse.Namespace) -> int:
     table = tomllib.loads((HERE / "candidates.toml").read_text(encoding="utf-8"))
-    matrix = [{"model": c["model"], "smoke": c.get("smoke", False)} for c in table["candidates"]]
-    smoke = next((c["model"] for c in matrix if c["smoke"]), None)
-    print(json.dumps({"matrix": matrix, "smoke_model": smoke, "smoke_cases": table["smoke_cases"]}))
+    print(json.dumps({"matrix": [{"model": c["model"]} for c in table["candidates"]]}))
     return 0
 
 
@@ -156,14 +140,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data", type=Path, default=HERE)
     parser.add_argument("--config", type=Path, default=HERE.parent / "config.toml")
     parser.add_argument("--model")
-    parser.add_argument("--ollama-url", default="http://localhost:11434")
-    parser.add_argument("--container")
     parser.add_argument("--only")
     parser.add_argument("--timeout", type=float, default=PRODUCTION_TIMEOUT_S)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--runs", type=Path, nargs="+")
     parser.add_argument("--out-dir", type=Path)
-    parser.add_argument("--latency-run", action="append", default=[], metavar="MODEL=FILE")
     args = parser.parse_args(argv)
     commands = {
         "check": _check,
