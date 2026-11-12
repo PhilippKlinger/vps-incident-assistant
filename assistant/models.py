@@ -50,10 +50,12 @@ class Analysis(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    suspected_change: str
+    # Reasoning comes before each id: the model generates in schema order and should
+    # weigh the facts before it commits to an answer.
     change_reasoning: str = Field(max_length=400)
-    runbook: str
+    suspected_change: str
     runbook_reasoning: str = Field(max_length=300)
+    runbook: str
     summary: str = Field(max_length=300)
     evidence: list[str] = Field(min_length=1)
     confidence: Literal["low", "medium", "high"]

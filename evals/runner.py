@@ -70,7 +70,7 @@ def run_case(
 ) -> CaseRun:
     # Mirrors assistant.llm.analyze, but records the first attempt and the metered resources.
     messages = build_messages(case.context, secrets.token_hex(8))
-    schema = analysis_schema()
+    schema = analysis_schema(case.context)
     reason = "model unreachable"
     analysis = None
     rejection = None
