@@ -232,10 +232,7 @@ def test_cli_candidates_prints_the_bedrock_matrix(capsys):
     assert _main("candidates") == 0
 
     data = json.loads(capsys.readouterr().out)
-    assert [c["model"] for c in data["matrix"]] == [
-        "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
-        "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
-    ]
+    assert [c["model"] for c in data["matrix"]] == ["eu.anthropic.claude-sonnet-4-6"]
 
 
 def test_underscore_canary_is_found_after_sanitizing():

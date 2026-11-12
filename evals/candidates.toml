@@ -2,7 +2,4 @@
 # The IDs are checked in the Bedrock console before the first run.
 
 [[candidates]]
-model = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
-
-[[candidates]]
-model = "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
+model = "eu.anthropic.claude-sonnet-4-6"
