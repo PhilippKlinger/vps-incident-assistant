@@ -365,6 +365,28 @@ def test_rejected_case_keeps_the_code_but_no_analysis():
     assert (run.analysis, run.comment, run.rejection) == (None, None, "unknown_change")
 
 
+def test_rejected_replies_are_kept_raw_and_cut():
+    _, cases = load_fixture_set()
+    rejected = json.dumps(_analysis(change="C42"))
+    replies = iter([rejected, "x" * 5000, json.dumps(_analysis())])
+    ollama = _ollama(lambda request: _reply(next(replies)))
+
+    run = run_case(cases[0], ollama, NullMeter(), Clock())
+
+    # Both attempts were rejected (unknown id, then no JSON); each raw reply is kept, cut.
+    assert run.answer is None
+    assert run.rejected_raw == (rejected, "x" * 2000)
+
+
+def test_valid_first_answer_keeps_no_raw_reply():
+    _, cases = load_fixture_set()
+    ollama = _ollama(lambda request: _reply(_analysis()))
+
+    run = run_case(cases[0], ollama, NullMeter(), Clock())
+
+    assert run.rejected_raw == ()
+
+
 def test_cli_run_passes_the_attempt_timeout_to_ollama(tmp_path, monkeypatch):
     seen = []
 
