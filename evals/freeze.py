@@ -39,7 +39,9 @@ def freeze(
     (out / "history").mkdir(parents=True, exist_ok=True)
     (out / "runbooks").mkdir(parents=True, exist_ok=True)
     for repo in repos:
-        # The reader skips merge commits, which repeat the commits they merge.
+        # The reader walks the first-parent chain of main (merge commits = merged PRs).
+        # Re-freezing changes the SHAs (merge instead of branch commits), so cases would
+        # have to be re-anchored.
         changes = reader.recent_changes(repo, _EPOCH, limit=per_repo)
         entries = [
             {

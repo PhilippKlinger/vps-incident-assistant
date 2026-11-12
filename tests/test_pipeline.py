@@ -109,8 +109,14 @@ def _reader(fail=False) -> GitHubReader:
         if fail:
             return httpx.Response(500)
         path = request.url.path
-        if path.endswith("/commits"):
-            return httpx.Response(200, json=[])
+        if path.endswith("/commits/main"):
+            # A root commit older than any window: no recent changes.
+            old = {
+                "sha": "a",
+                "parents": [],
+                "commit": {"committer": {"date": "2000-01-01T00:00:00Z"}},
+            }
+            return httpx.Response(200, json=old)
         if path.endswith("/runs"):
             return httpx.Response(200, json={"workflow_runs": []})
         return httpx.Response(200, text="## Troubleshooting\n### 502\nCheck the upstream\n")
