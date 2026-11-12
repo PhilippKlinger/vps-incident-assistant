@@ -57,7 +57,7 @@ Issue and Telegram text is English.
 
 | Risk | Measure |
 |---|---|
-| Prompt injection through changelogs (Dependabot), PR texts, foreign error messages | Model without tools; foreign text in delimited, shortened blocks marked as untrusted; hard check of the answer |
+| Prompt injection through changelogs (Dependabot), PR texts, foreign error messages | No tool that acts: the only tool is the forced output schema, nothing is executed; foreign text in delimited, shortened blocks marked as untrusted; hard check of the answer |
 | Output as attack path (links, `@` mentions, HTML in issues) | Issue built from a fixed template; free text has links, `@`, Markdown images and HTML neutralized |
 | Forged webhook | Internal Docker network only, no Caddy route, no published port; shared secret in the `X-Webhook-Secret` header, compared in constant time |
 | Too many permissions | Two fine-grained tokens: read-only on the five source repos, and Issues write on the issue repo only. Fine-grained tokens give all selected repos the same rights, hence two |
@@ -65,7 +65,7 @@ Issue and Telegram text is English.
 | Data leaving the host | Only public data in the prompt; no private repos, no logs, no Docker socket; the model is reached over HTTPS only (see Data protection) |
 | Residual risk | A valid but wrong suspicion is possible. It is labelled as such; the decision stays with a human |
 
-Container hardening: images pinned by digest, `cap_drop: [ALL]`, `no-new-privileges`, non-root users, read-only root filesystem for the assistant, journald logging, no published ports. CI starts the stack and checks these properties, scans the images with Trivy, audits the dependencies, runs CodeQL, Scorecard and gitleaks, and attests provenance and SBOM of the published image.
+Container hardening: images pinned by digest, `cap_drop: [ALL]`, `no-new-privileges`, non-root users, read-only root filesystem for the assistant, journald logging, no published ports. CI starts the stack and checks these properties, scans the image with Trivy, audits the dependencies, runs CodeQL, Scorecard and gitleaks, and attests provenance and SBOM of the published image.
 
 ## Configuration
 
