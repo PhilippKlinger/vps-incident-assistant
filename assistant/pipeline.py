@@ -18,7 +18,7 @@ from assistant.lifecycle import (
     monitor_label,
     project_label,
 )
-from assistant.llm import OllamaClient, RateLimiter, Unavailable, analyze
+from assistant.llm import BedrockClient, RateLimiter, Unavailable, analyze
 from assistant.models import Analysis, KumaEvent
 from assistant.probe import ProbeResult
 from assistant.render import (
@@ -45,8 +45,7 @@ INTERNAL_REASON = "internal error"
 _ISSUE_LOCK = threading.Lock()
 
 
-# Ollama runs one request at a time; without this lock a second analysis waits in
-# Ollama's queue and both time out.
+# One analysis at a time keeps the model requests and their cost bounded.
 _ANALYSIS_LOCK = threading.Lock()
 
 
@@ -57,7 +56,7 @@ class Deps:
     probe: Callable[[str], ProbeResult]
     reader: GitHubReader
     issues: IssueClient
-    ollama: OllamaClient
+    llm: BedrockClient
     telegram: Callable[[str], None]
     limiter: RateLimiter
     now: Callable[[], datetime]
@@ -168,7 +167,7 @@ def _comment_analysis(job: _FollowUp, deps: Deps) -> Analysis | None:
             deps.issues.comment(job.number, unavailable_comment(reason))
         elif job.run_llm:
             with _ANALYSIS_LOCK:
-                result = analyze(job.ctx, deps.ollama)
+                result = analyze(job.ctx, deps.llm)
             if isinstance(result, Unavailable):
                 reason = result.reason
                 deps.issues.comment(job.number, unavailable_comment(reason))

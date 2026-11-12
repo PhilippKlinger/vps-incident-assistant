@@ -12,6 +12,8 @@ from assistant.llm import (
     FILES_BUDGET,
     FILES_IN_PROMPT,
     AnalysisRejected,
+    BedrockClient,
+    ModelReply,
     OllamaClient,
     RateLimiter,
     Unavailable,
@@ -109,8 +111,26 @@ def test_think_block_rejected():
     _rejected("<think>hmm</think>" + _answer())
 
 
+MODEL = "eu.vendor.model-v1:0"
+
+
 def _client(handler):
-    return OllamaClient(httpx.Client(transport=httpx.MockTransport(handler)), "http://o", "m")
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    return BedrockClient(http, "eu-north-1", MODEL, "secret-token")
+
+
+def _converse(tool_input=None, *, stop="tool_use", name="record_analysis", usage=(7, 3)):
+    if tool_input is None:
+        tool_input = json.loads(_answer())
+    block = {"toolUse": {"toolUseId": "t1", "name": name, "input": tool_input}}
+    return httpx.Response(
+        200,
+        json={
+            "output": {"message": {"role": "assistant", "content": [{"text": "ok"}, block]}},
+            "stopReason": stop,
+            "usage": {"inputTokens": usage[0], "outputTokens": usage[1]},
+        },
+    )
 
 
 def test_request_payload():
@@ -118,10 +138,39 @@ def test_request_payload():
 
     def handler(request):
         seen.append(request)
+        return _converse()
+
+    ctx = _ctx()
+    schema = analysis_schema(ctx)
+    messages = [{"role": "system", "content": "sys"}, {"role": "user", "content": "hi"}]
+    out = _client(handler).chat(messages, schema)
+    request = seen[0]
+    body = json.loads(request.content)
+    assert str(request.url) == (
+        "https://bedrock-runtime.eu-north-1.amazonaws.com/model/eu.vendor.model-v1%3A0/converse"
+    )
+    assert request.headers["Authorization"] == "Bearer secret-token"
+    assert body["system"] == [{"text": "sys"}]
+    assert body["messages"] == [{"role": "user", "content": [{"text": "hi"}]}]
+    assert body["inferenceConfig"] == {"temperature": 0, "maxTokens": 1024}
+    tool = body["toolConfig"]["tools"][0]["toolSpec"]
+    assert tool["name"] == "record_analysis"
+    assert tool["inputSchema"] == {"json": schema}
+    assert body["toolConfig"]["toolChoice"] == {"tool": {"name": "record_analysis"}}
+    assert request.extensions["timeout"]["read"] == 60
+    assert out == ModelReply(json.dumps(json.loads(_answer())), 7, 3)
+
+
+def test_ollama_request_payload():
+    seen = []
+
+    def handler(request):
+        seen.append(request)
         return httpx.Response(200, json={"message": {"content": _answer()}})
 
+    http = httpx.Client(transport=httpx.MockTransport(handler))
     schema = analysis_schema(_ctx())
-    out = _client(handler).chat([{"role": "user", "content": "hi"}], schema)
+    out = OllamaClient(http, "http://o", "m").chat([{"role": "user", "content": "hi"}], schema)
     body = json.loads(seen[0].content)
     assert seen[0].url.path == "/api/chat"
     assert body["think"] is False
@@ -154,16 +203,16 @@ def test_analyze_sends_the_schema_of_its_context():
 
     def handler(request):
         seen.append(json.loads(request.content))
-        return httpx.Response(200, json={"message": {"content": _answer()}})
+        return _converse()
 
     analyze(_ctx(), _client(handler))
 
-    assert seen[0]["format"] == analysis_schema(_ctx())
+    tool = seen[0]["toolConfig"]["tools"][0]["toolSpec"]
+    assert tool["inputSchema"]["json"] == analysis_schema(_ctx())
 
 
 def test_analyze_returns_valid_analysis():
-    client = _client(lambda r: httpx.Response(200, json={"message": {"content": _answer()}}))
-    assert isinstance(analyze(_ctx(), client), Analysis)
+    assert isinstance(analyze(_ctx(), _client(lambda r: _converse())), Analysis)
 
 
 def test_analyze_retries_once_then_unavailable():
@@ -171,7 +220,7 @@ def test_analyze_retries_once_then_unavailable():
 
     def handler(request):
         calls.append(1)
-        return httpx.Response(200, json={"message": {"content": "not json"}})
+        return _converse({"suspected_change": "C1"})
 
     result = analyze(_ctx(), _client(handler))
     assert len(calls) == 2
@@ -179,8 +228,8 @@ def test_analyze_retries_once_then_unavailable():
 
 
 def test_analyze_recovers_on_second_attempt():
-    answers = iter(["garbage", _answer()])
-    client = _client(lambda r: httpx.Response(200, json={"message": {"content": next(answers)}}))
+    answers = iter([{"foo": 1}, json.loads(_answer())])
+    client = _client(lambda r: _converse(next(answers)))
     assert isinstance(analyze(_ctx(), client), Analysis)
 
 
@@ -191,8 +240,9 @@ def test_analyze_timeout_unavailable():
     assert analyze(_ctx(), _client(handler)) == Unavailable("model timed out")
 
 
-def test_analyze_http_error_unavailable():
-    assert analyze(_ctx(), _client(lambda r: httpx.Response(500))) == Unavailable(
+@pytest.mark.parametrize("status", [400, 403, 429, 500, 503])
+def test_analyze_http_error_unavailable(status):
+    assert analyze(_ctx(), _client(lambda r: httpx.Response(status))) == Unavailable(
         "model unreachable"
     )
 
@@ -207,6 +257,30 @@ def test_analyze_connect_error_unavailable():
 def test_analyze_missing_content_unavailable():
     client = _client(lambda r: httpx.Response(200, json={"foo": 1}))
     assert analyze(_ctx(), client) == Unavailable("model unreachable")
+
+
+def test_analyze_other_stop_reason_unavailable():
+    client = _client(lambda r: _converse(stop="max_tokens"))
+    assert analyze(_ctx(), client) == Unavailable("model unreachable")
+
+
+def test_analyze_without_tool_use_unavailable():
+    client = _client(lambda r: _converse(name="other_tool"))
+    assert analyze(_ctx(), client) == Unavailable("model unreachable")
+
+
+def test_analyze_non_object_input_unavailable():
+    client = _client(lambda r: _converse(["not", "an", "object"]))
+    assert analyze(_ctx(), client) == Unavailable("model unreachable")
+
+
+def test_analyze_missing_usage_unavailable():
+    def handler(request):
+        data = json.loads(_converse().content)
+        del data["usage"]
+        return httpx.Response(200, json=data)
+
+    assert analyze(_ctx(), _client(handler)) == Unavailable("model unreachable")
 
 
 def test_build_messages_structure():
@@ -292,16 +366,11 @@ def test_valid_answer_with_whitespace_accepted():
     assert validate_analysis("  " + _answer() + "\n", _ctx())
 
 
-def test_analyze_null_content_unavailable():
-    client = _client(lambda r: httpx.Response(200, json={"message": {"content": None}}))
-    assert analyze(_ctx(), client) == Unavailable("model unreachable")
-
-
 def test_prompt_bug_propagates(monkeypatch):
     def boom(ctx, nonce):
         raise KeyError("bug")
 
     monkeypatch.setattr("assistant.llm.build_messages", boom)
-    client = _client(lambda r: httpx.Response(200, json={"message": {"content": _answer()}}))
+    client = _client(lambda r: _converse())
     with pytest.raises(KeyError):
         analyze(_ctx(), client)

@@ -11,7 +11,7 @@ from assistant.app import create_app
 from assistant.config import SettingsError, load_config, load_settings
 from assistant.github_read import GitHubReader, make_client
 from assistant.issues import IssueClient, make_issue_client
-from assistant.llm import OllamaClient, RateLimiter
+from assistant.llm import BedrockClient, RateLimiter
 from assistant.pipeline import Deps
 from assistant.probe import default_resolve, default_tls_days, probe_url
 from assistant.telegram import send_telegram
@@ -41,7 +41,9 @@ def main() -> None:
         ),
         reader=GitHubReader(make_client(settings.github_read_token)),
         issues=IssueClient(make_issue_client(settings.github_issue_token), settings.issue_repo),
-        ollama=OllamaClient(httpx.Client(), settings.ollama_url, settings.ollama_model),
+        llm=BedrockClient(
+            httpx.Client(), settings.bedrock_region, settings.bedrock_model, settings.bedrock_token
+        ),
         telegram=lambda text: send_telegram(
             telegram_client, settings.telegram_bot_token, settings.telegram_chat_id, text
         ),
