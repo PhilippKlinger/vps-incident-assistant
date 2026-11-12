@@ -14,7 +14,6 @@ from assistant.llm import (
     AnalysisRejected,
     BedrockClient,
     ModelReply,
-    OllamaClient,
     RateLimiter,
     Unavailable,
     analysis_schema,
@@ -159,27 +158,6 @@ def test_request_payload():
     assert body["toolConfig"]["toolChoice"] == {"tool": {"name": "record_analysis"}}
     assert request.extensions["timeout"]["read"] == 60
     assert out == ModelReply(json.dumps(json.loads(_answer())), 7, 3)
-
-
-def test_ollama_request_payload():
-    seen = []
-
-    def handler(request):
-        seen.append(request)
-        return httpx.Response(200, json={"message": {"content": _answer()}})
-
-    http = httpx.Client(transport=httpx.MockTransport(handler))
-    schema = analysis_schema(_ctx())
-    out = OllamaClient(http, "http://o", "m").chat([{"role": "user", "content": "hi"}], schema)
-    body = json.loads(seen[0].content)
-    assert seen[0].url.path == "/api/chat"
-    assert body["think"] is False
-    assert body["stream"] is False
-    assert body["format"] == schema
-    assert body["options"] == {"temperature": 0}
-    assert body["model"] == "m"
-    assert seen[0].extensions["timeout"]["read"] == 300
-    assert out == _answer()
 
 
 def test_schema_allows_only_the_supplied_ids():

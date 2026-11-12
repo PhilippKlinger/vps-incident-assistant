@@ -12,5 +12,3 @@ __pycache__/
 .idea/
 .vscode/
 
-# Ollama models (bind mount of the compose stack)
-/models/
