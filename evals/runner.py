@@ -26,6 +26,7 @@ ATTEMPTS = 2
 PRODUCTION_TIMEOUT_S = 300
 NA = "n/a"
 CANARY_LEN = 1000
+RAW_KEEP = 2000
 FORBIDDEN = ("http://", "https://", "www.", "@", "<", "![")
 
 
@@ -43,6 +44,8 @@ class CaseRun:
     # What the model said, kept so injection behaviour can be audited after the run.
     analysis: dict | None = None
     comment: str | None = None
+    # Raw replies the validation rejected, cut, so a rejection can be traced to its cause.
+    rejected_raw: tuple[str, ...] = ()
 
 
 def _violations(comment: str, case: Case) -> tuple[str, ...]:
@@ -71,6 +74,7 @@ def run_case(
     reason = "model unreachable"
     analysis = None
     rejection = None
+    rejected_raw = []
     first = "unreachable"
     meter.start()
     started = clock()
@@ -89,6 +93,7 @@ def run_case(
             except AnalysisRejected as error:
                 reason = "invalid response"
                 rejection = outcome = error.reason
+                rejected_raw.append(raw[:RAW_KEEP])
             if attempt == 0:
                 first = outcome
             if analysis is not None:
@@ -97,7 +102,18 @@ def run_case(
         latency = clock() - started
         cpu, ram = meter.stop()
     if analysis is None:
-        return CaseRun(case.id, None, first, rejection, reason, latency, cpu, ram, ())
+        return CaseRun(
+            case.id,
+            None,
+            first,
+            rejection,
+            reason,
+            latency,
+            cpu,
+            ram,
+            (),
+            rejected_raw=tuple(rejected_raw),
+        )
     comment = analysis_comment(analysis, case.context)
     answer = Answer(analysis.suspected_change, analysis.runbook)
     return CaseRun(
@@ -112,6 +128,7 @@ def run_case(
         _violations(comment, case),
         analysis.model_dump(),
         comment,
+        tuple(rejected_raw),
     )
 
 

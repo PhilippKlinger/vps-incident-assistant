@@ -1,10 +1,17 @@
-# Manual full eval run: all cases against every candidate model from evals/candidates.toml,
+# Manual eval run: all cases (or the ids in the input only) against every candidate model
+# from evals/candidates.toml; a partial run cannot pass the report, missing cases count as unavailable;
 # Ollama limited to 2 CPUs and 8 GB like in production. The report is an artifact; the
 # controller commits it to the repository. Actions are pinned by commit SHA.
 name: Evals
 
 on:
   workflow_dispatch:
+    inputs:
+      only:
+        description: Comma-separated case ids for a partial run (empty runs all cases)
+        required: false
+        default: ""
+        type: string
 
 # One full run at a time; a second dispatch waits instead of cancelling a 5 h run.
 concurrency:
@@ -116,14 +123,20 @@ jobs:
           echo "slug=${MODEL//[^A-Za-z0-9._-]/-}" >> "${GITHUB_OUTPUT}"
 
       # The step limit stays below the job limit, so the upload below still runs.
-      - name: Run all cases
+      # The input only reaches the shell as an environment variable, never as a template.
+      - name: Run cases
         timeout-minutes: 335
         env:
           SLUG: ${{ steps.name.outputs.slug }}
+          ONLY: ${{ inputs.only }}
         run: |
           set -Eeuo pipefail
+          only=()
+          if [ -n "${ONLY}" ]; then
+            only=(--only "${ONLY}")
+          fi
           python -m evals run --model "${MODEL}" --timeout 900 \
-            --container "${OLLAMA_CONTAINER}" --out "run-${SLUG}.json"
+            --container "${OLLAMA_CONTAINER}" --out "run-${SLUG}.json" "${only[@]}"
 
       - name: Upload run result
         if: always()
