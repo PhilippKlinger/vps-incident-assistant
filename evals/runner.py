@@ -46,6 +46,8 @@ class CaseRun:
     comment: str | None = None
     # Raw replies the validation rejected, cut, so a rejection can be traced to its cause.
     rejected_raw: tuple[str, ...] = ()
+    # Status of the last failed HTTP attempt, so a 403 is told apart from a 429.
+    http_status: int | None = None
 
 
 def _violations(comment: str, case: Case) -> tuple[str, ...]:
@@ -75,6 +77,7 @@ def run_case(
     rejection = None
     rejected_raw = []
     first = "unreachable"
+    http_status = None
     input_tokens = output_tokens = 0
     started = clock()
     try:
@@ -88,9 +91,12 @@ def run_case(
             except httpx.TimeoutException:
                 reason = "model timed out"
                 outcome = "timed out"
-            except (httpx.RequestError, httpx.HTTPStatusError, _BadResponse):
+                http_status = None
+            except (httpx.RequestError, httpx.HTTPStatusError, _BadResponse) as error:
                 reason = "model unreachable"
                 outcome = "unreachable"
+                is_http = isinstance(error, httpx.HTTPStatusError)
+                http_status = error.response.status_code if is_http else None
             except AnalysisRejected as error:
                 reason = "invalid response"
                 rejection = outcome = error.reason
@@ -113,6 +119,7 @@ def run_case(
             output_tokens,
             (),
             rejected_raw=tuple(rejected_raw),
+            http_status=http_status,
         )
     comment = analysis_comment(analysis, case.context)
     answer = Answer(analysis.suspected_change, analysis.runbook)
@@ -193,8 +200,9 @@ def describe_run(run: dict) -> str:
         if answer
         else f"unavailable ({run['unavailable']})"
     )
+    status = f" http {run['http_status']}" if run.get("http_status") else ""
     return (
-        f"{run['case_id']} {shown} {run['latency_s']:.1f}s {run['first_attempt']} "
+        f"{run['case_id']} {shown} {run['latency_s']:.1f}s {run['first_attempt']}{status} "
         f"in {run['input_tokens']} out {run['output_tokens']}"
     )
 

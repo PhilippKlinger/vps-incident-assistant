@@ -230,6 +230,8 @@ def _failed(reason: str, error: Exception) -> str:
     detail = type(error).__name__
     if isinstance(error, AnalysisRejected):
         detail += f": {error.reason}"  # fixed English code, no model content
+    elif isinstance(error, httpx.HTTPStatusError):
+        detail += f": {error.response.status_code}"  # status only, never body or URL
     log.warning("llm attempt failed: %s (%s)", reason, detail)
     return reason
 
