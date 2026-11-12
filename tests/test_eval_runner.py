@@ -1,12 +1,12 @@
 import json
-from dataclasses import replace
+from dataclasses import asdict, replace
 
 import httpx
 import pytest
 
 from assistant.llm import BedrockClient
 from evals.baselines import Answer
-from evals.runner import candidate_summary, run_candidate, run_case
+from evals.runner import candidate_summary, describe_run, run_candidate, run_case
 from tests.evals_support import FIXTURES, load_fixture_set
 
 
@@ -94,6 +94,16 @@ def test_unknown_change_id_counts_as_invalid():
 
     assert (run.answer, run.unavailable) == (None, "invalid response")
     assert (run.first_attempt, run.rejection) == ("unknown_change", "unknown_change")
+
+
+def test_http_status_of_the_failed_attempt_is_recorded():
+    _, cases = load_fixture_set()
+
+    run = run_case(cases[0], _llm(lambda r: httpx.Response(429)))
+
+    assert run.unavailable == "model unreachable"
+    assert run.http_status == 429
+    assert "http 429" in describe_run(asdict(run))
 
 
 def test_unreachable_model_is_recorded_and_the_run_continues():

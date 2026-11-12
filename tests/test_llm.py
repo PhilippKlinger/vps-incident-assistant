@@ -225,6 +225,15 @@ def test_analyze_http_error_unavailable(status):
     )
 
 
+def test_http_error_log_has_the_status_but_not_the_token(caplog):
+    caplog.set_level("WARNING")
+
+    analyze(_ctx(), _client(lambda r: httpx.Response(403, text="body secret-token")))
+
+    assert "HTTPStatusError: 403" in caplog.text
+    assert "secret-token" not in caplog.text
+
+
 def test_analyze_connect_error_unavailable():
     def handler(request):
         raise httpx.ConnectError("no", request=request)
