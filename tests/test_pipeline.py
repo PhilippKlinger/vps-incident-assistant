@@ -8,7 +8,7 @@ import httpx
 from assistant.config import Config, Project, Settings
 from assistant.github_read import GitHubReader
 from assistant.issues import IssueClient
-from assistant.llm import OllamaClient, RateLimiter
+from assistant.llm import BedrockClient, RateLimiter
 from assistant.models import KumaEvent
 from assistant.pipeline import (
     Deps,
@@ -33,7 +33,7 @@ VIDEOFLIX = Project(
     True,
 )
 PORTFOLIO = Project("portfolio", "Portfolio", ("Portfolio",), (), (), False)
-SETTINGS = Settings("s", "r", "i", REPO, "tok", "chat", "http://ollama:11434", "m")
+SETTINGS = Settings("s", "r", "i", REPO, "tok", "chat", "eu-north-1", "m", "b")
 PROBE = ProbeResult(502, None, 40, {}, 30, ("1.2.3.4",))
 ANSWER = {
     "suspected_change": "none",
@@ -125,30 +125,42 @@ def _reader(fail=False) -> GitHubReader:
     return GitHubReader(client)
 
 
+def _converse():
+    block = {"toolUse": {"toolUseId": "t", "name": "record_analysis", "input": ANSWER}}
+    return httpx.Response(
+        200,
+        json={
+            "output": {"message": {"role": "assistant", "content": [block]}},
+            "stopReason": "tool_use",
+            "usage": {"inputTokens": 1, "outputTokens": 1},
+        },
+    )
+
+
 class Setup:
-    def __init__(self, *, llm=True, ollama_status=200, github_down=False, limit=6, delay=0):
+    def __init__(self, *, llm=True, llm_status=200, github_down=False, limit=6, delay=0):
         self.store = Store(delay)
-        self.ollama_calls = 0
+        self.llm_calls = 0
         self.telegram: list[str] = []
         self.probe_calls: list[str] = []
 
-        def ollama(request):
-            self.ollama_calls += 1
-            if ollama_status != 200:
-                return httpx.Response(ollama_status)
-            return httpx.Response(200, json={"message": {"content": json.dumps(ANSWER)}})
+        def converse(request):
+            self.llm_calls += 1
+            if llm_status != 200:
+                return httpx.Response(llm_status)
+            return _converse()
 
         issue_http = httpx.Client(
             base_url="https://api.github.com", transport=httpx.MockTransport(self.store.handler)
         )
-        ollama_http = httpx.Client(transport=httpx.MockTransport(ollama))
+        llm_http = httpx.Client(transport=httpx.MockTransport(converse))
         self.deps = Deps(
             config=Config((VIDEOFLIX, PORTFOLIO), llm, 6, 10),
             settings=SETTINGS,
             probe=self._probe,
             reader=_reader(github_down),
             issues=IssueClient(issue_http, REPO),
-            ollama=OllamaClient(ollama_http, "http://ollama:11434", "m"),
+            llm=BedrockClient(llm_http, "eu-north-1", "m", "b"),
             telegram=self.telegram.append,
             limiter=RateLimiter(limit),
             now=lambda: NOW,
@@ -177,7 +189,7 @@ def test_pipeline_create_then_analysis():
 def test_pipeline_llm_switch_off():
     s = Setup(llm=False)
     handle_event(_event(), s.deps)
-    assert s.ollama_calls == 0
+    assert s.llm_calls == 0
     assert "no LLM analysis" in s.store.calls("POST", "/issues")[0]["body"]
     assert s.store.calls("POST", "/comments") == []
     assert len(s.telegram) == 1
@@ -187,7 +199,7 @@ def test_pipeline_llm_switch_off():
 def test_pipeline_project_without_llm():
     s = Setup()
     handle_event(_event("Portfolio"), s.deps)
-    assert s.ollama_calls == 0
+    assert s.llm_calls == 0
     assert len(s.telegram) == 1
     assert "Portfolio" in s.telegram[0]
 
@@ -195,7 +207,7 @@ def test_pipeline_project_without_llm():
 def test_pipeline_github_down_skips_llm():
     s = Setup(github_down=True)
     handle_event(_event(), s.deps)
-    assert s.ollama_calls == 0
+    assert s.llm_calls == 0
     body = s.store.calls("POST", "/issues")[0]["body"]
     assert "### Rule result" in body
     assert len(s.telegram) == 1
@@ -204,7 +216,7 @@ def test_pipeline_github_down_skips_llm():
 def test_pipeline_rate_limit_skips_llm():
     s = Setup(limit=0)
     handle_event(_event(), s.deps)
-    assert s.ollama_calls == 0
+    assert s.llm_calls == 0
     comments = s.store.calls("POST", "/comments")
     assert len(comments) == 1
     assert "hourly limit reached" in comments[0]["body"]
@@ -212,7 +224,7 @@ def test_pipeline_rate_limit_skips_llm():
 
 
 def test_pipeline_unavailable_comment():
-    s = Setup(ollama_status=500)
+    s = Setup(llm_status=500)
     handle_event(_event(), s.deps)
     comments = s.store.calls("POST", "/comments")
     assert len(comments) == 1
@@ -226,7 +238,7 @@ def test_pipeline_append_adds_label_no_telegram():
     handle_event(_event("Videoflix · API"), s.deps)
     assert "Additional alert" in s.store.calls("POST", "/comments")[0]["body"]
     assert s.store.calls("POST", "/labels") == [{"labels": ["monitor:videoflix-api"]}]
-    assert s.ollama_calls == 0
+    assert s.llm_calls == 0
     assert s.telegram == []
 
 
@@ -392,7 +404,7 @@ def test_analyses_run_one_at_a_time():
     peak = 0
     guard = threading.Lock()
 
-    def ollama(request):
+    def converse(request):
         nonlocal active, peak
         with guard:
             active += 1
@@ -400,10 +412,10 @@ def test_analyses_run_one_at_a_time():
         time.sleep(0.05)
         with guard:
             active -= 1
-        return httpx.Response(200, json={"message": {"content": json.dumps(ANSWER)}})
+        return _converse()
 
-    s.deps.ollama = OllamaClient(
-        httpx.Client(transport=httpx.MockTransport(ollama)), "http://ollama:11434", "m"
+    s.deps.llm = BedrockClient(
+        httpx.Client(transport=httpx.MockTransport(converse)), "eu-north-1", "m", "b"
     )
     ctx = _build_context(_event(), VIDEOFLIX, s.deps, NOW)
     jobs = [_FollowUp(ctx, 1, True) for _ in range(2)]
@@ -448,7 +460,7 @@ def test_comment_failure_still_sends_one_telegram(caplog):
 def test_analyze_error_still_sends_one_telegram(monkeypatch, caplog):
     s = Setup()
 
-    def broken(ctx, ollama):
+    def broken(ctx, llm):
         raise KeyError("bug")
 
     monkeypatch.setattr("assistant.pipeline.analyze", broken)
@@ -460,7 +472,7 @@ def test_analyze_error_still_sends_one_telegram(monkeypatch, caplog):
 def test_analyze_error_resolves_analysis_pending(monkeypatch, caplog):
     s = Setup()
 
-    def broken(ctx, ollama):
+    def broken(ctx, llm):
         raise KeyError("bug")
 
     monkeypatch.setattr("assistant.pipeline.analyze", broken)
@@ -481,7 +493,7 @@ def test_analyze_error_with_failing_comment_still_sends_telegram(monkeypatch, ca
             return httpx.Response(500)
         return original(request)
 
-    def broken(ctx, ollama):
+    def broken(ctx, llm):
         raise KeyError("bug")
 
     monkeypatch.setattr("assistant.pipeline.analyze", broken)

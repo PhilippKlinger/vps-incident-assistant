@@ -1,3 +1,4 @@
+import json
 import logging
 import secrets
 import time
@@ -5,6 +6,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 from pydantic import ValidationError
@@ -21,6 +23,8 @@ FILE_NAME_MAX = 120
 # Shared by the file lists of all changes, next to the diff budget in context.py.
 FILES_BUDGET = 2000
 _WINDOW_SECONDS = 3600
+TOOL_NAME = "record_analysis"
+MAX_OUTPUT_TOKENS = 1024
 
 
 class AnalysisRejected(Exception):
@@ -30,7 +34,14 @@ class AnalysisRejected(Exception):
 
 
 class _BadResponse(Exception):
-    """Ollama answered, but not in the expected shape."""
+    """The model API answered, but not in the expected shape."""
+
+
+@dataclass(frozen=True)
+class ModelReply:
+    text: str
+    input_tokens: int
+    output_tokens: int
 
 
 @dataclass(frozen=True)
@@ -39,8 +50,8 @@ class Unavailable:
 
 
 def analysis_schema(ctx: IncidentContext) -> dict:
-    # Ollama constrains the output to the schema, so the ids of this incident are fixed
-    # here; validate_analysis still checks them.
+    # The forced tool gets this schema, so the ids of this incident are fixed here;
+    # validate_analysis still checks them.
     schema = Analysis.model_json_schema()
     props = schema["properties"]
     props["suspected_change"]["enum"] = [c.id for c in ctx.changes] + ["none"]
@@ -142,6 +153,62 @@ class OllamaClient:
         return content
 
 
+class BedrockClient:
+    def __init__(
+        self, client: httpx.Client, region: str, model: str, token: str, timeout: float = 60
+    ):
+        self._client = client
+        self._url = (
+            f"https://bedrock-runtime.{region}.amazonaws.com/model/{quote(model, safe='')}/converse"
+        )
+        self._token = token
+        self._timeout = timeout
+
+    def chat(self, messages: list[dict], schema: dict) -> ModelReply:
+        system, user = messages
+        response = self._client.post(
+            self._url,
+            headers={"Authorization": f"Bearer {self._token}"},
+            json={
+                "system": [{"text": system["content"]}],
+                "messages": [{"role": "user", "content": [{"text": user["content"]}]}],
+                "inferenceConfig": {"temperature": 0, "maxTokens": MAX_OUTPUT_TOKENS},
+                "toolConfig": {
+                    "tools": [
+                        {
+                            "toolSpec": {
+                                "name": TOOL_NAME,
+                                "description": "Record the analysis of the incident.",
+                                "inputSchema": {"json": schema},
+                            }
+                        }
+                    ],
+                    "toolChoice": {"tool": {"name": TOOL_NAME}},
+                },
+            },
+            timeout=self._timeout,
+        )
+        response.raise_for_status()
+        try:
+            data = response.json()
+            if data["stopReason"] != "tool_use":
+                raise _BadResponse
+            tool_input = next(
+                block["toolUse"]["input"]
+                for block in data["output"]["message"]["content"]
+                if block.get("toolUse", {}).get("name") == TOOL_NAME
+            )
+            input_tokens = data["usage"]["inputTokens"]
+            output_tokens = data["usage"]["outputTokens"]
+        except (KeyError, TypeError, ValueError, AttributeError, StopIteration) as error:
+            raise _BadResponse from error
+        if not isinstance(tool_input, dict):
+            raise _BadResponse
+        if not all(type(n) is int for n in (input_tokens, output_tokens)):
+            raise _BadResponse
+        return ModelReply(json.dumps(tool_input), input_tokens, output_tokens)
+
+
 def validate_analysis(raw: str, ctx: IncidentContext) -> Analysis:
     try:
         analysis = Analysis.model_validate_json(raw)
@@ -167,17 +234,15 @@ def _failed(reason: str, error: Exception) -> str:
     return reason
 
 
-def analyze(
-    ctx: IncidentContext, ollama: OllamaClient, attempts: int = 2
-) -> Analysis | Unavailable:
+def analyze(ctx: IncidentContext, llm: BedrockClient, attempts: int = 2) -> Analysis | Unavailable:
     # Built outside the error handling so a bug here is not reported as a model outage.
     messages = build_messages(ctx, secrets.token_hex(8))
     schema = analysis_schema(ctx)
     reason = "model unreachable"
     for _ in range(attempts):
         try:
-            raw = ollama.chat(messages, schema)
-            return validate_analysis(raw, ctx)
+            reply = llm.chat(messages, schema)
+            return validate_analysis(reply.text, ctx)
         except httpx.TimeoutException as error:
             reason = _failed("model timed out", error)
         except (httpx.RequestError, httpx.HTTPStatusError, _BadResponse) as error:

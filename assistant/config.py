@@ -3,9 +3,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_OLLAMA_URL = "http://ollama:11434"
-DEFAULT_OLLAMA_MODEL = "qwen3:8b"
-
 # Environment variables that must be set and non-empty.
 MANDATORY_ENV = (
     "WEBHOOK_SECRET",
@@ -14,6 +11,9 @@ MANDATORY_ENV = (
     "ISSUE_REPO",
     "TELEGRAM_BOT_TOKEN",
     "TELEGRAM_CHAT_ID",
+    "BEDROCK_REGION",
+    "BEDROCK_MODEL",
+    "AWS_BEARER_TOKEN_BEDROCK",
 )
 
 
@@ -78,8 +78,9 @@ class Settings:
     issue_repo: str
     telegram_bot_token: str
     telegram_chat_id: str
-    ollama_url: str
-    ollama_model: str
+    bedrock_region: str
+    bedrock_model: str
+    bedrock_token: str
 
 
 def load_settings(env: Mapping[str, str]) -> Settings:
@@ -93,6 +94,7 @@ def load_settings(env: Mapping[str, str]) -> Settings:
         issue_repo=env["ISSUE_REPO"],
         telegram_bot_token=env["TELEGRAM_BOT_TOKEN"],
         telegram_chat_id=env["TELEGRAM_CHAT_ID"],
-        ollama_url=env.get("OLLAMA_URL") or DEFAULT_OLLAMA_URL,
-        ollama_model=env.get("OLLAMA_MODEL") or DEFAULT_OLLAMA_MODEL,
+        bedrock_region=env["BEDROCK_REGION"],
+        bedrock_model=env["BEDROCK_MODEL"],
+        bedrock_token=env["AWS_BEARER_TOKEN_BEDROCK"],
     )

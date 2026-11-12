@@ -13,6 +13,9 @@ MANDATORY = {
     "ISSUE_REPO": "owner/repo",
     "TELEGRAM_BOT_TOKEN": "t",
     "TELEGRAM_CHAT_ID": "1",
+    "BEDROCK_REGION": "eu-north-1",
+    "BEDROCK_MODEL": "eu.vendor.model-v1:0",
+    "AWS_BEARER_TOKEN_BEDROCK": "b",
 }
 
 
@@ -48,8 +51,6 @@ def test_load_settings_lists_all_missing():
         load_settings({})
     for name in MANDATORY:
         assert name in str(error.value)
-    assert "OLLAMA_URL" not in str(error.value)
-    assert "OLLAMA_MODEL" not in str(error.value)
 
 
 def test_load_settings_treats_empty_as_missing():
@@ -57,14 +58,9 @@ def test_load_settings_treats_empty_as_missing():
         load_settings({**MANDATORY, "WEBHOOK_SECRET": ""})
 
 
-def test_settings_defaults():
+def test_settings_reads_bedrock_values():
     settings = load_settings(MANDATORY)
-    assert settings.ollama_url == "http://ollama:11434"
-    assert settings.ollama_model == "qwen3:8b"
+    assert settings.bedrock_region == "eu-north-1"
+    assert settings.bedrock_model == "eu.vendor.model-v1:0"
+    assert settings.bedrock_token == "b"
     assert settings.issue_repo == "owner/repo"
-
-
-def test_settings_overrides_ollama():
-    env = {**MANDATORY, "OLLAMA_URL": "http://x:1", "OLLAMA_MODEL": "m"}
-    settings = load_settings(env)
-    assert (settings.ollama_url, settings.ollama_model) == ("http://x:1", "m")
