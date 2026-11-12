@@ -1,5 +1,5 @@
 [llm]
-enabled = false          # switched on only after OPS-03 meets the thresholds
+enabled = true           # on since the OPS-03 eval, see evals/reports/
 max_runs_per_hour = 6
 
 [lifecycle]

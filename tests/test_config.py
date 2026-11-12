@@ -33,7 +33,7 @@ def test_project_for_unknown_monitor():
 
 def test_load_config_reads_llm_switch():
     config = load_config(CONFIG_PATH)
-    assert config.llm_enabled is False
+    assert config.llm_enabled is True
     assert config.llm_max_runs_per_hour == 6
     assert config.merge_window_minutes == 10
 
