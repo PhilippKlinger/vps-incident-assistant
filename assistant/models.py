@@ -52,11 +52,15 @@ class Analysis(BaseModel):
 
     # Reasoning comes before each id: the model generates in schema order and should
     # weigh the facts before it commits to an answer.
-    change_reasoning: str = Field(max_length=400)
+    change_reasoning: str = Field(
+        max_length=400, description="At most 2 short sentences, under 300 characters."
+    )
     suspected_change: str
-    runbook_reasoning: str = Field(max_length=300)
+    runbook_reasoning: str = Field(
+        max_length=300, description="At most 2 short sentences, under 200 characters."
+    )
     runbook: str
-    summary: str = Field(max_length=300)
+    summary: str = Field(max_length=300, description="1-2 short sentences, under 200 characters.")
     evidence: list[str] = Field(min_length=1)
     confidence: Literal["low", "medium", "high"]
 

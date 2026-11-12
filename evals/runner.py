@@ -16,6 +16,7 @@ from assistant.llm import (
     _BadResponse,
     analysis_schema,
     build_messages,
+    retry_messages,
     validate_analysis,
 )
 from assistant.render import analysis_comment, sanitize
@@ -72,6 +73,7 @@ def run_case(
     # Mirrors assistant.llm.analyze, but records the first attempt and the tokens used.
     messages = build_messages(case.context, secrets.token_hex(8))
     schema = analysis_schema(case.context)
+    request = messages
     reason = "model unreachable"
     analysis = None
     rejection = None
@@ -83,7 +85,7 @@ def run_case(
     try:
         for attempt in range(ATTEMPTS):
             try:
-                reply = llm.chat(messages, schema)
+                reply = llm.chat(request, schema)
                 input_tokens += reply.input_tokens
                 output_tokens += reply.output_tokens
                 analysis = validate_analysis(reply.text, case.context)
@@ -101,6 +103,7 @@ def run_case(
                 reason = "invalid response"
                 rejection = outcome = error.reason
                 rejected_raw.append(reply.text[:RAW_KEEP])
+                request = retry_messages(messages)
             if attempt == 0:
                 first = outcome
             if analysis is not None:

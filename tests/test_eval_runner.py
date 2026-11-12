@@ -4,7 +4,7 @@ from dataclasses import asdict, replace
 import httpx
 import pytest
 
-from assistant.llm import BedrockClient
+from assistant.llm import RETRY_NOTE, BedrockClient
 from evals.baselines import Answer
 from evals.runner import candidate_summary, describe_run, run_candidate, run_case
 from tests.evals_support import FIXTURES, load_fixture_set
@@ -84,6 +84,21 @@ def test_invalid_then_valid_answer_is_not_valid_first_try():
 
     assert run.first_attempt == "schema"
     assert run.answer == Answer("C1", "vps-edge#upstream-502")
+
+
+def test_retry_after_a_rejected_answer_carries_the_note():
+    _, cases = load_fixture_set()
+    replies = iter(["not json", _analysis()])
+    texts = []
+
+    def handler(request):
+        texts.append(json.loads(request.content)["messages"][0]["content"][0]["text"])
+        return _reply(next(replies))
+
+    run_case(cases[0], _llm(handler), Clock())
+
+    assert RETRY_NOTE not in texts[0]
+    assert texts[1].endswith(RETRY_NOTE)
 
 
 def test_unknown_change_id_counts_as_invalid():

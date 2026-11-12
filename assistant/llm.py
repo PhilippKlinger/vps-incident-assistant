@@ -25,6 +25,11 @@ FILES_BUDGET = 2000
 _WINDOW_SECONDS = 3600
 TOOL_NAME = "record_analysis"
 MAX_OUTPUT_TOKENS = 1024
+RETRY_NOTE = (
+    "Your previous answer was rejected: it broke the schema, used an ID that is not allowed "
+    "or had a text field over its length limit. Use only the allowed IDs and keep every text "
+    "field well under its limit."
+)
 
 
 class AnalysisRejected(Exception):
@@ -123,6 +128,14 @@ def build_messages(ctx: IncidentContext, nonce: str) -> list[dict]:
     ]
 
 
+def retry_messages(messages: list[dict]) -> list[dict]:
+    # temperature 0 would repeat a rejected answer, so the retry says what went wrong.
+    *rest, user = messages
+    if user["content"].endswith(RETRY_NOTE):
+        return list(messages)
+    return [*rest, {**user, "content": user["content"] + "\n\n" + RETRY_NOTE}]
+
+
 class BedrockClient:
     def __init__(
         self, client: httpx.Client, region: str, model: str, token: str, timeout: float = 60
@@ -211,9 +224,10 @@ def analyze(ctx: IncidentContext, llm: BedrockClient, attempts: int = 2) -> Anal
     messages = build_messages(ctx, secrets.token_hex(8))
     schema = analysis_schema(ctx)
     reason = "model unreachable"
+    request = messages
     for _ in range(attempts):
         try:
-            reply = llm.chat(messages, schema)
+            reply = llm.chat(request, schema)
             return validate_analysis(reply.text, ctx)
         except httpx.TimeoutException as error:
             reason = _failed("model timed out", error)
@@ -221,6 +235,7 @@ def analyze(ctx: IncidentContext, llm: BedrockClient, attempts: int = 2) -> Anal
             reason = _failed("model unreachable", error)
         except AnalysisRejected as error:
             reason = _failed("invalid response", error)
+            request = retry_messages(messages)
     return Unavailable(reason)
 
 
