@@ -1,7 +1,8 @@
 # Manual eval run: all cases (or the ids in the input only) against every candidate model
-# from evals/candidates.toml; a partial run cannot pass the report, missing cases count as unavailable;
-# Ollama limited to 2 CPUs and 8 GB like in production. The report is an artifact; the
-# controller commits it to the repository. Actions are pinned by commit SHA.
+# from evals/candidates.toml on Amazon Bedrock; a partial run cannot pass the report, missing
+# cases count as unavailable. The bearer token and region come from the bedrock-evals
+# environment. The report is an artifact; the controller commits it to the repository.
+# Actions are pinned by commit SHA.
 name: Evals
 
 on:
@@ -13,7 +14,7 @@ on:
         default: ""
         type: string
 
-# One full run at a time; a second dispatch waits instead of cancelling a 5 h run.
+# One full run at a time; a second dispatch waits instead of cancelling a running one.
 concurrency:
   group: evals
   cancel-in-progress: false
@@ -55,14 +56,16 @@ jobs:
     name: Run ${{ matrix.model }}
     needs: matrix
     runs-on: ubuntu-latest
-    timeout-minutes: 355
+    timeout-minutes: 60
+    environment: bedrock-evals
     strategy:
       fail-fast: false
       matrix:
         model: ${{ fromJSON(needs.matrix.outputs.models) }}
     env:
-      OLLAMA_CONTAINER: ollama-eval
       MODEL: ${{ matrix.model }}
+      AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
+      BEDROCK_REGION: ${{ vars.BEDROCK_REGION }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -78,43 +81,7 @@ jobs:
       - name: Install locked dependencies
         run: pip install -r requirements-dev.txt
 
-      # Same image, limits and settings as production; the container needs internet for
-      # the model pull, unlike production. No cache: the models together exceed it.
-      - name: Start Ollama
-        run: |
-          set -Eeuo pipefail
-          image="$(sed -n 's/^ *image: *\(ollama\/ollama:.*\)$/\1/p' compose.yaml | sort -u)"
-          echo "Image: ${image}"
-          test -n "${image}"
-          test "$(wc -l <<< "${image}")" = "1"
-          mkdir -p ollama-models/home
-          docker run -d --name "${OLLAMA_CONTAINER}" \
-            --cpus 2 --memory 8g \
-            --user "$(id -u):$(id -g)" \
-            --publish 127.0.0.1:11434:11434 \
-            --volume "${PWD}/ollama-models:/models" \
-            --env HOME=/models/home \
-            --env OLLAMA_MODELS=/models \
-            --env OLLAMA_NO_CLOUD=true \
-            --env OLLAMA_HOST=0.0.0.0:11434 \
-            --env OLLAMA_KEEP_ALIVE=5m \
-            --env OLLAMA_NUM_PARALLEL=1 \
-            --env OLLAMA_MAX_LOADED_MODELS=1 \
-            --env OLLAMA_CONTEXT_LENGTH=16384 \
-            "${image}"
-          for _ in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:11434/api/version; then
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "::error::Ollama did not answer after 60 seconds"
-          exit 1
-
-      - name: Pull model
-        run: docker exec "${OLLAMA_CONTAINER}" ollama pull "${MODEL}"
-
-      # Model tags contain ":" which artifact names do not allow. Set before the run,
+      # Model IDs contain ":" which artifact names do not allow. Set before the run,
       # so the upload still finds the name when the run step is killed.
       - name: Name the result file
         id: name
@@ -125,7 +92,7 @@ jobs:
       # The step limit stays below the job limit, so the upload below still runs.
       # The input only reaches the shell as an environment variable, never as a template.
       - name: Run cases
-        timeout-minutes: 335
+        timeout-minutes: 55
         env:
           SLUG: ${{ steps.name.outputs.slug }}
           ONLY: ${{ inputs.only }}
@@ -135,8 +102,7 @@ jobs:
           if [ -n "${ONLY}" ]; then
             only=(--only "${ONLY}")
           fi
-          python -m evals run --model "${MODEL}" --timeout 900 \
-            --container "${OLLAMA_CONTAINER}" --out "run-${SLUG}.json" "${only[@]}"
+          python -m evals run --model "${MODEL}" --out "run-${SLUG}.json" "${only[@]}"
 
       - name: Upload run result
         if: always()
@@ -145,14 +111,6 @@ jobs:
           name: run-${{ steps.name.outputs.slug }}
           path: run-${{ steps.name.outputs.slug }}.json
           if-no-files-found: warn
-
-      - name: Show Ollama logs on failure
-        if: failure()
-        run: docker logs "${OLLAMA_CONTAINER}"
-
-      - name: Stop Ollama
-        if: always()
-        run: docker rm --force "${OLLAMA_CONTAINER}"
 
   report:
     name: Build report

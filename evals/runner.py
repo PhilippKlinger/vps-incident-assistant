@@ -2,6 +2,7 @@ import json
 import math
 import os
 import secrets
+import statistics
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -11,7 +12,7 @@ import httpx
 
 from assistant.llm import (
     AnalysisRejected,
-    OllamaClient,
+    BedrockClient,
     _BadResponse,
     analysis_schema,
     build_messages,
@@ -23,8 +24,7 @@ from evals.cases import Case
 from evals.scoring import score, summarize
 
 ATTEMPTS = 2
-PRODUCTION_TIMEOUT_S = 300
-NA = "n/a"
+PRODUCTION_TIMEOUT_S = 60
 CANARY_LEN = 1000
 RAW_KEEP = 2000
 FORBIDDEN = ("http://", "https://", "www.", "@", "<", "![")
@@ -38,8 +38,8 @@ class CaseRun:
     rejection: str | None
     unavailable: str | None
     latency_s: float
-    cpu_s: float | None
-    ram_peak_mib: float | None
+    input_tokens: int
+    output_tokens: int
     unsupported: tuple[str, ...]
     # What the model said, kept so injection behaviour can be audited after the run.
     analysis: dict | None = None
@@ -64,11 +64,10 @@ def _violations(comment: str, case: Case) -> tuple[str, ...]:
 
 def run_case(
     case: Case,
-    ollama: OllamaClient,
-    meter,
+    llm: BedrockClient,
     clock: Callable[[], float] = time.monotonic,
 ) -> CaseRun:
-    # Mirrors assistant.llm.analyze, but records the first attempt and the metered resources.
+    # Mirrors assistant.llm.analyze, but records the first attempt and the tokens used.
     messages = build_messages(case.context, secrets.token_hex(8))
     schema = analysis_schema(case.context)
     reason = "model unreachable"
@@ -76,13 +75,15 @@ def run_case(
     rejection = None
     rejected_raw = []
     first = "unreachable"
-    meter.start()
+    input_tokens = output_tokens = 0
     started = clock()
     try:
         for attempt in range(ATTEMPTS):
             try:
-                raw = ollama.chat(messages, schema)
-                analysis = validate_analysis(raw, case.context)
+                reply = llm.chat(messages, schema)
+                input_tokens += reply.input_tokens
+                output_tokens += reply.output_tokens
+                analysis = validate_analysis(reply.text, case.context)
                 outcome = "valid"
             except httpx.TimeoutException:
                 reason = "model timed out"
@@ -93,14 +94,13 @@ def run_case(
             except AnalysisRejected as error:
                 reason = "invalid response"
                 rejection = outcome = error.reason
-                rejected_raw.append(raw[:RAW_KEEP])
+                rejected_raw.append(reply.text[:RAW_KEEP])
             if attempt == 0:
                 first = outcome
             if analysis is not None:
                 break
     finally:
         latency = clock() - started
-        cpu, ram = meter.stop()
     if analysis is None:
         return CaseRun(
             case.id,
@@ -109,8 +109,8 @@ def run_case(
             rejection,
             reason,
             latency,
-            cpu,
-            ram,
+            input_tokens,
+            output_tokens,
             (),
             rejected_raw=tuple(rejected_raw),
         )
@@ -123,8 +123,8 @@ def run_case(
         rejection,
         None,
         latency,
-        cpu,
-        ram,
+        input_tokens,
+        output_tokens,
         _violations(comment, case),
         analysis.model_dump(),
         comment,
@@ -153,8 +153,8 @@ def candidate_summary(cases: list[Case], runs: list[dict]) -> dict:
         raise SystemExit(f"Unknown case ids in run: {', '.join(unknown)}")
     # A case missing from the run counts as unavailable, so a subset cannot pass.
     scores = [score(case, _answer(by_id[case.id]) if case.id in by_id else None) for case in cases]
-    cpu = [run["cpu_s"] for run in runs if run["cpu_s"] is not None]
-    ram = [run["ram_peak_mib"] for run in runs if run["ram_peak_mib"] is not None]
+    input_tokens = [run["input_tokens"] for run in runs]
+    output_tokens = [run["output_tokens"] for run in runs]
     outcomes = [run["first_attempt"] for run in runs]
     timeouts = outcomes.count("timed out")
     unreachable = outcomes.count("unreachable")
@@ -171,8 +171,10 @@ def candidate_summary(cases: list[Case], runs: list[dict]) -> dict:
             for run in runs
         ),
         "unsupported_count": sum(len(run["unsupported"]) for run in runs),
-        "cpu_s_mean": sum(cpu) / len(cpu) if cpu else None,
-        "ram_peak_mib_max": max(ram) if ram else None,
+        "input_tokens_total": sum(input_tokens),
+        "output_tokens_total": sum(output_tokens),
+        "input_tokens_median": statistics.median(input_tokens) if runs else 0,
+        "output_tokens_median": statistics.median(output_tokens) if runs else 0,
     }
 
 
@@ -183,31 +185,6 @@ def _write_atomic(path: Path, result: dict) -> None:
     os.replace(temp, path)
 
 
-def fetch_provenance(client: httpx.Client, url: str, model: str) -> dict:
-    # Pins what was measured: the tag alone does not prove the same weights ran twice.
-    base = url.rstrip("/")
-
-    def get(path: str):
-        try:
-            response = client.get(f"{base}{path}", timeout=10)
-            response.raise_for_status()
-            return response.json()
-        except (httpx.HTTPError, ValueError):
-            return None
-
-    tags = get("/api/tags")
-    version = get("/api/version")
-    models = tags.get("models") if isinstance(tags, dict) else None
-    entries = models if isinstance(models, list) else []
-    digest = next(
-        (m.get("digest") for m in entries if isinstance(m, dict) and m.get("name") == model), None
-    )
-    return {
-        "model_digest": digest,
-        "ollama_version": version.get("version") if isinstance(version, dict) else None,
-    }
-
-
 def describe_run(run: dict) -> str:
     # One progress line per case, so a CI log shows whether the model answered at all.
     answer = run["answer"]
@@ -216,18 +193,15 @@ def describe_run(run: dict) -> str:
         if answer
         else f"unavailable ({run['unavailable']})"
     )
-    cpu = NA if run["cpu_s"] is None else f"{run['cpu_s']:.1f}s"
-    ram = NA if run["ram_peak_mib"] is None else f"{run['ram_peak_mib']:.0f}MiB"
     return (
         f"{run['case_id']} {shown} {run['latency_s']:.1f}s {run['first_attempt']} "
-        f"cpu {cpu} ram {ram}"
+        f"in {run['input_tokens']} out {run['output_tokens']}"
     )
 
 
 def run_candidate(
     cases: list[Case],
-    ollama: OllamaClient,
-    meter,
+    llm: BedrockClient,
     model: str,
     out: Path | None = None,
     on_case: Callable[[dict], None] | None = None,
@@ -236,7 +210,7 @@ def run_candidate(
     runs: list[dict] = []
     result: dict = {}
     for case in cases:
-        runs.append(asdict(run_case(case, ollama, meter)))
+        runs.append(asdict(run_case(case, llm)))
         if on_case:
             on_case(runs[-1])
         result = {"model": model, **(provenance or {}), "runs": runs}

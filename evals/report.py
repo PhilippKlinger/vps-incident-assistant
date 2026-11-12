@@ -2,7 +2,7 @@ from collections import Counter
 
 from evals.baselines import Answer, keyword_match, latest_change
 from evals.cases import Case
-from evals.runner import PRODUCTION_TIMEOUT_S, candidate_summary, p95
+from evals.runner import PRODUCTION_TIMEOUT_S, candidate_summary
 from evals.scoring import CaseScore, rule_accuracy, score, summarize
 from evals.thresholds import (
     CHANGE_MARGIN_PP,
@@ -51,27 +51,16 @@ def _run_scores(cases: list[Case], runs: list[dict]) -> list[CaseScore]:
     ]
 
 
-def _check(name: str, passed: bool, detail: str, provisional: bool = False) -> dict:
-    return {"name": name, "passed": passed, "detail": detail, "provisional": provisional}
+def _check(name: str, passed: bool, detail: str) -> dict:
+    return {"name": name, "passed": passed, "detail": detail}
 
 
 def _latency_check(candidate: dict) -> dict:
-    runner = candidate["latency_p95_s"]
-    vps = candidate["vps_latency_p95_s"]
-    if vps is None:
-        # The VPS run is authoritative (spec section 12); the runner value cannot pass a model.
-        return _check(
-            "latency p95",
-            False,
-            f"latency p95 {runner:.1f} s on the GitHub runner, provisional "
-            "(the VPS run decides this check)",
-            provisional=True,
-        )
+    p95_s = candidate["latency_p95_s"]
     return _check(
         "latency p95",
-        vps < LATENCY_P95_MAX_S,
-        f"latency p95 {vps:.1f} s on the VPS (must stay under {LATENCY_P95_MAX_S} s); "
-        f"GitHub runner {runner:.1f} s",
+        p95_s < LATENCY_P95_MAX_S,
+        f"latency p95 {p95_s:.1f} s (must stay under {LATENCY_P95_MAX_S} s)",
     )
 
 
@@ -173,31 +162,11 @@ def _examples(cases: list[Case], best: dict | None) -> list[dict]:
     return examples
 
 
-def _vps_p95(model: str, latency_run: dict) -> float:
-    runs = latency_run["runs"]
-    if not runs:
-        raise SystemExit(f"Latency run for {model} has no cases")
-    # A sample is enough here; quality metrics never read this file.
-    return p95([run["latency_s"] for run in runs])
+def _verdict(passing: list[str]) -> str:
+    return f"Passing: {', '.join(passing)}" if passing else NO_PASS
 
 
-def _verdict(passing: list[str], pending: list[str]) -> str:
-    note = f"latency check is pending the VPS run for: {', '.join(pending)}"
-    if passing:
-        text = f"Passing: {', '.join(passing)}"
-        return f"{text}; {note}" if pending else text
-    if pending:
-        return f"No candidate has passed yet; {note}. llm.enabled stays false."
-    return NO_PASS
-
-
-def build_report(
-    cases: list[Case], runs: list[dict], latency_runs: dict[str, dict] | None = None
-) -> dict:
-    latency_runs = latency_runs or {}
-    unknown = sorted(latency_runs.keys() - {run["model"] for run in runs})
-    if unknown:
-        raise SystemExit(f"Latency run given, but no candidate run for: {', '.join(unknown)}")
+def build_report(cases: list[Case], runs: list[dict]) -> dict:
     baseline_scores = {name: [score(c, fn(c)) for c in cases] for name, fn in BASELINES.items()}
     baselines = {
         name: {"metrics": dict(vars(summarize(scores, digits=None))), **_detail(scores)}
@@ -217,20 +186,10 @@ def build_report(
         candidate["unavailable_reasons"] = dict(
             Counter(r["unavailable"] for r in run["runs"] if r["unavailable"])
         )
-        model = run["model"]
-        candidate["vps_latency_p95_s"] = (
-            _vps_p95(model, latency_runs[model]) if model in latency_runs else None
-        )
         candidate["checks"] = _checks(candidate, best)
         candidate["passes"] = all(c["passed"] for c in candidate["checks"])
         candidates.append(candidate)
     passing = [c["model"] for c in candidates if c["passes"]]
-    pending = [
-        c["model"]
-        for c in candidates
-        if all(k["passed"] or k["provisional"] for k in c["checks"])
-        and any(k["provisional"] for k in c["checks"])
-    ]
     leader = max(
         candidates,
         key=lambda c: c["metrics"]["change_hit"] + c["metrics"]["runbook_hit"],
@@ -241,7 +200,7 @@ def build_report(
         "baselines": baselines,
         "candidates": candidates,
         "passing": passing,
-        "verdict": _verdict(passing, pending),
+        "verdict": _verdict(passing),
         "rule_accuracy": rule_accuracy(cases),
         "best_candidate": leader["model"] if leader else None,
         "examples": _examples(cases, leader),
@@ -249,8 +208,6 @@ def build_report(
 
 
 def _status(check: dict) -> str:
-    if check["provisional"]:
-        return "PENDING"
     return "PASS" if check["passed"] else "FAIL"
 
 
@@ -268,10 +225,6 @@ def _group_cell(count: dict) -> str:
     return f"{_pct(100 * count['k'] / count['n'])} ({count['k']}/{count['n']})"
 
 
-def _optional(value: float | None, unit: str) -> str:
-    return NA if value is None else f"{value:.1f} {unit}"
-
-
 def _row(label: str, baseline_cell: str | None, candidate_cell, report: dict) -> str:
     cells = [baseline_cell or NA for _ in report["baselines"]]
     cells += [candidate_cell(c) for c in report["candidates"]]
@@ -286,8 +239,7 @@ def _table(report: dict) -> list[str]:
         cells = [_rate(c["metrics"][key], c["counts"][key]) for c in columns]
         lines.append(f"| {label} | " + " | ".join(cells) + " |")
     lines += [
-        _row("Model digest", None, lambda c: c.get("model_digest") or NA, report),
-        _row("Ollama version", None, lambda c: c.get("ollama_version") or NA, report),
+        _row("Region", None, lambda c: c.get("region") or NA, report),
         _row(
             "Valid schema first try",
             None,
@@ -305,15 +257,19 @@ def _table(report: dict) -> list[str]:
             report,
         ),
         _row("Unsupported statements", None, lambda c: str(c["unsupported_count"]), report),
+        _row("Latency p95", None, lambda c: f"{c['latency_p95_s']:.1f} s", report),
         _row(
-            "Latency p95 (GitHub runner)",
+            "Tokens in / out, total",
             None,
-            lambda c: _optional(c["latency_p95_s"], "s"),
+            lambda c: f"{c['input_tokens_total']} / {c['output_tokens_total']}",
             report,
         ),
-        _row("Latency p95 (VPS)", None, lambda c: _optional(c["vps_latency_p95_s"], "s"), report),
-        _row("Mean CPU", None, lambda c: _optional(c["cpu_s_mean"], "s"), report),
-        _row("Max RAM", None, lambda c: _optional(c["ram_peak_mib_max"], "MiB"), report),
+        _row(
+            "Tokens in / out, median per case",
+            None,
+            lambda c: f"{c['input_tokens_median']:g} / {c['output_tokens_median']:g}",
+            report,
+        ),
     ]
     return lines
 
@@ -359,7 +315,7 @@ def render_markdown(report: dict) -> str:
         "Valid schema first try = valid / first attempts that returned a response; "
         "timeouts and unreachable are excluded and counted separately.",
         "",
-        "CPU and RAM are measured per case and have no threshold. "
+        "Tokens have no threshold; the per-case counts are in report.json. "
         "Rates show hits / applicable cases (k/n).",
         "",
         "## By group",
