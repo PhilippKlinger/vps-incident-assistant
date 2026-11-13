@@ -8,6 +8,17 @@ Incident assistant for the VPS platform: turns Uptime Kuma alerts into GitHub is
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/PhilippKlinger/vps-incident-assistant/badge)](https://scorecard.dev/viewer/?uri=github.com/PhilippKlinger/vps-incident-assistant)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+## Table of Contents
+
+- [Overview](#overview)
+- [How it works](#how-it-works)
+- [Tech stack](#tech-stack)
+- [Getting started](#getting-started)
+- [Results](#results)
+- [CI and security](#ci-and-security)
+- [Related repositories](#related-repositories)
+- [License](#license)
+
 ## Overview
 
 - Turns Uptime Kuma alerts into GitHub issues: one issue per incident, later alerts become comments
