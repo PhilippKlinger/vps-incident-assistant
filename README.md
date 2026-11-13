@@ -4,12 +4,13 @@
 [![Security Checks](https://github.com/PhilippKlinger/vps-incident-assistant/actions/workflows/security.yml/badge.svg)](https://github.com/PhilippKlinger/vps-incident-assistant/actions/workflows/security.yml)
 [![CodeQL](https://github.com/PhilippKlinger/vps-incident-assistant/actions/workflows/codeql.yml/badge.svg)](https://github.com/PhilippKlinger/vps-incident-assistant/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/PhilippKlinger/vps-incident-assistant/badge)](https://scorecard.dev/viewer/?uri=github.com/PhilippKlinger/vps-incident-assistant)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Incident assistant for the VPS platform: turns Uptime Kuma alerts into GitHub issues with rule-based triage and a checked LLM analysis.
 
 When a service goes down, the alert alone does not say what changed or where to look. The assistant collects the facts around the alert, files one issue per incident and adds a suspected cause and a matching runbook section, both backed by evidence. Rules decide category and severity; the LLM only suggests the cause, and the code checks every claim before it is published. A human decides what to do; the assistant only reads, and writes issues and Telegram messages.
 
-The LLM analysis is switched on (`llm.enabled = true` in `config.toml`). In the evaluation (OPS-03, [report](evals/reports/2026-11-12-sonnet-4-6.md)) Claude Sonnet 4.6 on Amazon Bedrock met six of seven thresholds against 30 frozen incidents: it names the causing change in 96 % of the cases, against 39 % for the best baseline. Known weakness: when no runbook section applies, it still suggests one too often (33 % correct `none` instead of at least 80 %), so the runbook link is a suggestion next to the rule result.
+The LLM analysis is switched on (`llm.enabled = true` in `config.toml`). In the [evaluation](#evaluation) Claude Sonnet 4.6 on Amazon Bedrock met six of seven thresholds against 30 frozen incidents: it names the causing change in 96 % of the cases, against 39 % for the best baseline. Known weakness: when no runbook section applies, it still suggests one too often (33 % correct `none` instead of at least 80 %), so the runbook link is a suggestion next to the rule result.
 
 ## How it works
 
@@ -53,6 +54,24 @@ sequenceDiagram
 
 Issue and Telegram text is English.
 
+## Evaluation
+
+30 frozen incidents with a reference answer, scored against two baselines (the most recent change, a keyword match). The thresholds were fixed in `evals/thresholds.py` before the run. Full numbers per group: [report](evals/reports/2026-11-12-sonnet-4-6.md).
+
+| Metric | Best baseline | Claude Sonnet 4.6 | Threshold | Result |
+|---|---|---|---|---|
+| Change hit | 39.1 % | 95.7 % (22/23) | 15 pp above the best baseline | pass |
+| Runbook hit | 23.8 % | 76.2 % (16/21) | 15 pp above the best baseline | pass |
+| Correct none (change) | 85.7 % | 85.7 % (6/7) | at least 80 % | pass |
+| Correct none (runbook) | 100 % | 33.3 % (3/9) | at least 80 % | fail |
+| Valid schema first try | n/a | 100 % (30/30) | at least 95 % | pass |
+| Unsupported statements | n/a | 0 | 0 | pass |
+| Latency p95 | n/a | 5.4 s | under 300 s | pass |
+
+The report itself states that no candidate meets every threshold. The analysis was switched on anyway, on purpose: the missed threshold only affects the runbook suggestion, which stays a suggestion next to the rule result.
+
+The CI scores the fixtures and baselines on every pull request; a full run against Bedrock is started by hand (`evals.yml`).
+
 ## Security
 
 | Risk | Measure |
@@ -92,7 +111,7 @@ The assistant exits at startup if a required variable is missing.
 
 ```toml
 [llm]
-enabled = false          # switched on only after OPS-03 meets the thresholds
+enabled = true           # on since the evaluation, see evals/reports/
 max_runs_per_hour = 6
 
 [lifecycle]
@@ -109,32 +128,6 @@ llm = true                                           # false: rule result only
 
 Projects with `llm = true`: Videoflix and the status page. Portfolio, Neuro Check-in and Blog get issues with the rule result only. Alerts from a monitor that is not listed are filed under the project "unknown" without LLM.
 
-## Usage on the server
-
-The stack lives in `/srv/incident` next to the other stacks. `compose.yaml` pins the assistant image by digest; `.env` may override `ASSISTANT_IMAGE`.
-
-1. Update `vps-monitoring` first (`docker compose up -d`). It creates the internal network `incident`, which this stack joins as an external network.
-2. Create `/srv/incident` and put `compose.yaml` and `.env` there (`chmod 600 .env`).
-3. Pull the image:
-
-   ```bash
-   cd /srv/incident
-   docker compose pull
-   ```
-
-4. Start the stack and check that the assistant is healthy:
-
-   ```bash
-   docker compose up -d
-   docker compose ps
-   ```
-
-5. In Uptime Kuma add a webhook notification to `http://incident-assistant:8080/webhook/kuma` with the header `X-Webhook-Secret`, and press *Test*. The assistant log shows `ignored` for the test event. Create the monitor `Statusseite` if it does not exist yet.
-
-A new model: change `BEDROCK_MODEL` in `.env` and run `docker compose up -d`.
-
-Resources: the assistant gets 256 MB and 0.5 CPU.
-
 ## Data protection
 
 The analysis runs on Amazon Bedrock in the EU: the `eu.` inference profile in region `eu-north-1`. Only the rule result, the Kuma facts, changes from public repos (without author) and runbook excerpts are sent; no personal data. Model invocation logging is off in the AWS account. According to AWS, Bedrock does not store prompts and answers and does not use them for training ([Data protection](https://docs.aws.amazon.com/bedrock/latest/userguide/data-protection.html)).
@@ -147,6 +140,15 @@ The analysis runs on Amazon Bedrock in the EU: the `eu.` inference profile in re
 - Only public repos are read. Causes outside them (a provider outage, an expired certificate) show up as "no specific change".
 - The assistant sees only what is visible from outside and in the repos, not the host (logs, CPU, disk).
 
+## What CI checks
+
+Every pull request to `main` must pass these checks before a merge:
+
+- **Lint (ruff)** and **Test (pytest)**
+- **Evals (fixtures, baselines, smoke):** fixtures and rules are consistent, the baselines are scored
+- **Validate compose and workflows**, **Start stack and check security properties** (the hardening above), **Scan images (Trivy)**
+- **Security checks:** secret scan (gitleaks), workflow lint (zizmor), CodeQL for Python and the workflows
+
 ## Development
 
 ```bash
@@ -158,3 +160,17 @@ ruff check .
 ruff format --check .
 pytest
 ```
+
+## Related repositories
+
+| Repository | Role |
+|---|---|
+| [vps-monitoring](https://github.com/PhilippKlinger/vps-monitoring) | Uptime Kuma sends the alert webhook over the network `incident` |
+| [vps-edge](https://github.com/PhilippKlinger/vps-edge) | Runbook source (Troubleshooting), read for changes |
+| [videoflix-deploy](https://github.com/PhilippKlinger/videoflix-deploy) | Runbook source (Troubleshooting), read for changes |
+| [videoflix-backend](https://github.com/PhilippKlinger/videoflix-backend), [videoflix-frontend](https://github.com/PhilippKlinger/videoflix-frontend) | Read for changes |
+| [v-server-setup](https://github.com/PhilippKlinger/v-server-setup) | How the server is set up and hardened |
+
+## License
+
+[MIT](LICENSE)
