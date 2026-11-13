@@ -14,7 +14,7 @@ def _key(repo: str) -> str:
 
 
 def troubleshooting_section(readme_md: str) -> str:
-    """The '## Troubleshooting' section of a README, up to the next '## ' heading."""
+    """The '## Troubleshooting' section of a RUNBOOK.md, up to the next '## ' heading."""
     lines: list[str] = []
     in_section = False
     in_fence = False
@@ -60,6 +60,6 @@ def freeze(
         text = json.dumps(entries, indent=2, ensure_ascii=False) + "\n"
         path.write_text(text, encoding="utf-8", newline="\n")
     for repo in runbook_repos:
-        section = troubleshooting_section(reader.readme(repo))
+        section = troubleshooting_section(reader.runbook(repo))
         path = out / "runbooks" / f"{_key(repo)}.md"
         path.write_text(section, encoding="utf-8", newline="\n")

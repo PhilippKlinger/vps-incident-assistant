@@ -106,7 +106,7 @@ def build_context(
                 raw += reader.recent_changes(repo, since)
                 runs += reader.deploy_runs(repo, since)
             for repo in project.runbook_repos:
-                anchors += parse_runbook(repo, reader.readme(repo))
+                anchors += parse_runbook(repo, reader.runbook(repo))
         except GitHubUnavailable:
             github_ok = False
             runs, raw, anchors = [], [], []

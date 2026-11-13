@@ -86,7 +86,7 @@ class _FixtureReader:
     def deploy_runs(self, repo: str, since: datetime) -> list[str]:
         return self._runs if repo == DEPLOY_REPO else []
 
-    def readme(self, repo: str) -> str:
+    def runbook(self, repo: str) -> str:
         return self._store.runbook(repo)
 
 

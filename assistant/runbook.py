@@ -12,7 +12,7 @@ def github_slug(heading: str) -> str:
 
 
 def parse_runbook(repo: str, readme_md: str) -> list[RunbookAnchor]:
-    """Anchors for the ### headings under '## Troubleshooting' of a README."""
+    """Anchors for the ### headings under '## Troubleshooting' of a RUNBOOK.md."""
     name = repo.split("/")[-1]
     anchors: list[RunbookAnchor] = []
     in_section = False

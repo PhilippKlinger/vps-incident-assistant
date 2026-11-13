@@ -100,7 +100,8 @@ def _runbook_line(analysis: Analysis, ctx: IncidentContext) -> str:
     for anchor in ctx.anchors:
         if anchor.id == analysis.runbook:
             slug = anchor.id.split("#", 1)[1]
-            return f"[{sanitize(anchor.title, 120)}](https://github.com/{anchor.repo}#{slug})"
+            url = f"https://github.com/{anchor.repo}/blob/main/RUNBOOK.md#{slug}"
+            return f"[{sanitize(anchor.title, 120)}]({url})"
     return _UNKNOWN
 
 
