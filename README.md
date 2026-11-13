@@ -1,12 +1,12 @@
 # vps-incident-assistant
 
+Incident assistant for the VPS platform: turns Uptime Kuma alerts into GitHub issues with rule-based triage and a checked LLM analysis.
+
 [![CI](https://github.com/PhilippKlinger/vps-incident-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/PhilippKlinger/vps-incident-assistant/actions/workflows/ci.yml)
 [![Security Checks](https://github.com/PhilippKlinger/vps-incident-assistant/actions/workflows/security.yml/badge.svg)](https://github.com/PhilippKlinger/vps-incident-assistant/actions/workflows/security.yml)
 [![CodeQL](https://github.com/PhilippKlinger/vps-incident-assistant/actions/workflows/codeql.yml/badge.svg)](https://github.com/PhilippKlinger/vps-incident-assistant/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/PhilippKlinger/vps-incident-assistant/badge)](https://scorecard.dev/viewer/?uri=github.com/PhilippKlinger/vps-incident-assistant)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-
-Incident assistant for the VPS platform: turns Uptime Kuma alerts into GitHub issues with rule-based triage and a checked LLM analysis.
 
 When a service goes down, the alert alone does not say what changed or where to look. The assistant collects the facts around the alert, files one issue per incident and adds a suspected cause and a matching runbook section, both backed by evidence. Rules decide category and severity; the LLM only suggests the cause, and the code checks every claim before it is published. A human decides what to do; the assistant only reads, and writes issues and Telegram messages.
 
@@ -21,17 +21,16 @@ sequenceDiagram
     participant G as GitHub API
     participant O as Amazon Bedrock
     participant T as Telegram
-    K->>T: alert (unchanged, direct)
-    K->>A: webhook down/up (internal network, secret header)
-    A->>A: collect facts (outside view) and number them
-    A->>G: read commits, PRs, diffs, deploy runs
+    K->>T: alert
+    K->>A: webhook down
+    A->>G: read recent changes and deploy runs
     A->>A: rules: category, severity
-    A->>G: create issue or comment (rule result)
-    A->>O: prompt with facts, changes, runbook anchors, JSON schema
-    O-->>A: JSON
-    A->>A: hard check (schema, IDs, commits, anchors)
-    A->>G: comment with the analysis (fixed template)
-    A->>T: one message: cause, runbook, issue link
+    A->>G: issue with the rule result
+    A->>O: facts, changes, runbook anchors
+    O-->>A: JSON answer
+    A->>A: check every ID and anchor
+    A->>G: comment with the analysis
+    A->>T: cause, runbook, issue link
 ```
 
 **Rules vs. LLM.** Rules produce category and severity. The LLM never does; it only fills a fixed schema: `suspected_change`, `change_reasoning`, `runbook`, `runbook_reasoning`, `summary`, `evidence` and `confidence`. Runs use `temperature: 0`, a forced tool call that carries the schema, a 60 s timeout and one retry; after a rejected answer the retry adds a fixed note about the schema and the length limits.
