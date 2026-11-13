@@ -45,7 +45,7 @@ class FakeReader:
             raise GitHubUnavailable("down")
         return self.runs.get(repo, [])
 
-    def readme(self, repo):
+    def runbook(self, repo):
         if self.fail:
             raise GitHubUnavailable("down")
         return "## Troubleshooting\n\n### Proxy down\n\nText\n"

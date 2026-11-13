@@ -43,7 +43,7 @@ def _handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=merge)
     if path == f"/repos/{REPO}/commits/{'a' * 40}":
         return httpx.Response(200, json=single)
-    if path == f"/repos/{REPO}/readme":
+    if path == f"/repos/{REPO}/contents/RUNBOOK.md":
         return httpx.Response(200, text=README)
     return httpx.Response(404)
 

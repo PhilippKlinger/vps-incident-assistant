@@ -132,9 +132,10 @@ class GitHubReader:
         except _SHAPE_ERRORS:
             raise GitHubUnavailable("GitHub returned an unexpected response") from None
 
-    def readme(self, repo: str) -> str:
+    def runbook(self, repo: str) -> str:
         response = self._get(
-            f"/repos/{repo}/readme", headers={"Accept": "application/vnd.github.raw+json"}
+            f"/repos/{repo}/contents/RUNBOOK.md",
+            headers={"Accept": "application/vnd.github.raw+json"},
         )
         return response.text
 

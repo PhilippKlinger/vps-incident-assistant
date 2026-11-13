@@ -174,7 +174,8 @@ def test_analysis_comment_link_only_from_anchor():
     )
     out = analysis_comment(analysis, make_ctx())
     assert out.lower().count("http") == 1
-    assert "[Upstream 502](https://github.com/PhilippKlinger/vps-edge#upstream-502)" in out
+    link = "https://github.com/PhilippKlinger/vps-edge/blob/main/RUNBOOK.md#upstream-502"
+    assert f"[Upstream 502]({link})" in out
     assert "evil" not in out
 
 
