@@ -138,7 +138,7 @@ def test_rate_limit_raises_unavailable():
         return httpx.Response(403, headers={"x-ratelimit-remaining": "0"}, json={})
 
     with pytest.raises(GitHubUnavailable):
-        _reader(handler).readme("o/r")
+        _reader(handler).runbook("o/r")
 
 
 def test_server_error_and_network_error_raise_unavailable():
@@ -146,20 +146,20 @@ def test_server_error_and_network_error_raise_unavailable():
         raise httpx.ConnectTimeout("t")
 
     with pytest.raises(GitHubUnavailable):
-        _reader(boom).readme("o/r")
+        _reader(boom).runbook("o/r")
     with pytest.raises(GitHubUnavailable):
-        _reader(lambda r: httpx.Response(502)).readme("o/r")
+        _reader(lambda r: httpx.Response(502)).runbook("o/r")
     with pytest.raises(GitHubUnavailable):
-        _reader(lambda r: httpx.Response(429)).readme("o/r")
+        _reader(lambda r: httpx.Response(429)).runbook("o/r")
 
 
-def test_readme_requests_raw():
+def test_runbook_requests_raw_file():
     def handler(request):
-        assert request.url.path == "/repos/o/r/readme"
+        assert request.url.path == "/repos/o/r/contents/RUNBOOK.md"
         assert request.headers["accept"] == "application/vnd.github.raw+json"
         return httpx.Response(200, text="# Hi")
 
-    assert _reader(handler).readme("o/r") == "# Hi"
+    assert _reader(handler).runbook("o/r") == "# Hi"
 
 
 def test_deploy_runs_lines_and_missing_workflow():
@@ -209,7 +209,7 @@ def test_unavailable_message_has_no_token():
     client = make_client("secret-token")
     client._transport = httpx.MockTransport(lambda r: httpx.Response(500))
     with pytest.raises(GitHubUnavailable) as exc:
-        GitHubReader(client).readme("o/r")
+        GitHubReader(client).runbook("o/r")
     assert "secret-token" not in str(exc.value)
 
 
@@ -217,7 +217,7 @@ def test_redirect_raises_unavailable():
     reader = _reader(lambda request: httpx.Response(301, headers={"location": "https://x.test/"}))
 
     with pytest.raises(GitHubUnavailable):
-        reader.readme("o/r")
+        reader.runbook("o/r")
 
 
 def test_malformed_json_raises_unavailable():
@@ -240,4 +240,4 @@ def test_decoding_error_raises_unavailable():
         raise httpx.DecodingError("broken gzip")
 
     with pytest.raises(GitHubUnavailable, match="DecodingError"):
-        _reader(handler).readme("o/r")
+        _reader(handler).runbook("o/r")

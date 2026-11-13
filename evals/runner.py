@@ -55,7 +55,8 @@ def _violations(comment: str, case: Case) -> tuple[str, ...]:
     # The comment links the chosen runbook section itself; that link is ours, not the model's.
     for anchor in case.context.anchors:
         slug = anchor.id.split("#", 1)[1]
-        comment = comment.replace(f"(https://github.com/{anchor.repo}#{slug})", "")
+        url = f"https://github.com/{anchor.repo}/blob/main/RUNBOOK.md#{slug}"
+        comment = comment.replace(f"({url})", "")
     found = [marker for marker in FORBIDDEN if marker in comment.lower()]
     lowered = comment.lower()
     if case.canary and (
