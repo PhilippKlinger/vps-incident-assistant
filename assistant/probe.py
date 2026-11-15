@@ -97,9 +97,16 @@ def _is_tls_error(exc: httpx.ConnectError) -> bool:
     return "ssl" in message or "certificate" in message
 
 
+def tls_context() -> ssl.SSLContext:
+    context = ssl.create_default_context()
+    # Explicit floor, independent of the Python and OpenSSL defaults.
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return context
+
+
 def default_tls_days(host: str) -> int | None:
     try:
-        context = ssl.create_default_context()
+        context = tls_context()
         with socket.create_connection((host, 443), timeout=5) as sock:
             with context.wrap_socket(sock, server_hostname=host) as tls:
                 not_after = tls.getpeercert()["notAfter"]
