@@ -2,7 +2,7 @@ import ssl
 
 import httpx
 
-from assistant.probe import ProbeResult, probe_url
+from assistant.probe import ProbeResult, probe_url, tls_context
 
 
 def _client(handler) -> httpx.Client:
@@ -87,6 +87,14 @@ def test_probe_tls_days_failure_is_none():
 
     assert result.status_code == 200
     assert result.tls_days_left is None
+
+
+def test_tls_context_requires_tls_1_2_and_verified_certificates():
+    context = tls_context()
+
+    assert context.minimum_version == ssl.TLSVersion.TLSv1_2
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname
 
 
 def test_fact_texts_hide_addresses():
