@@ -198,7 +198,8 @@ def test_deploy_runs_lines_and_missing_workflow():
 def test_make_client_headers():
     client = make_client("secret-token")
 
-    assert str(client.base_url).startswith("https://api.github.com")
+    assert client.base_url.scheme == "https"
+    assert client.base_url.host == "api.github.com"
     assert client.headers["authorization"] == "Bearer secret-token"
     assert client.headers["x-github-api-version"] == "2022-11-28"
     assert client.headers["accept"] == "application/vnd.github+json"
